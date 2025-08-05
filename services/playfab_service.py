@@ -1,9 +1,9 @@
 import json
 import requests
 from config.settings import PLAYFAB_TITLE_ID, PLAYFAB_SECRET_KEY
-from config.constants import CASH_PACKS
+from config.constants import CURRENCY_PACKS
 
-def get_cash_packs():
+def get_currency_packs():
     API_URL = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Server/GetTitleData"
 
     headers = {
@@ -13,7 +13,7 @@ def get_cash_packs():
 
     
     request_body = {
-        "Keys": [CASH_PACKS] 
+        "Keys": [CURRENCY_PACKS] 
     }
 
     try:
@@ -25,15 +25,15 @@ def get_cash_packs():
         if result.get("code") == 200:
             title_data = result.get("data", {}).get("Data", {})
             # Expecting something like {'CURRENCY_PACKS': '{...json string...}'}
-            packs_json = title_data.get(CASH_PACKS)
+            packs_json = title_data.get(CURRENCY_PACKS)
             if packs_json:
                 try:
                     packs_dict = json.loads(packs_json)
                     return packs_dict
                 except Exception as e:
-                    return {"error": f"Failed to parse CASH_PACKS: {e}"}
+                    return {"error": f"Failed to parse CURRENCY_PACKS: {e}"}
             else:
-                return {"error": "CASH_PACKS not found in title data"}
+                return {"error": "CURRENCY_PACKS not found in title data"}
         else:
             return {"error": result.get('errorMessage')}
 
@@ -66,3 +66,31 @@ def update_playfab_cash(playfab_id: str, cash_to_add: int):
     })
 
     return update_response.ok
+
+
+def update_playfab_coins(playfab_id: str, coins_to_add: int):
+    get_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/GetUserData"
+    headers = {
+        "X-SecretKey": PLAYFAB_SECRET_KEY
+    }
+
+    current_coins = 0
+    try:
+        get_response = requests.post(get_data_url, headers=headers, json={"PlayFabId": playfab_id})
+        get_response.raise_for_status()
+        current_coins = int(get_response.json()["data"]["Data"].get("Coins", {}).get("Value", 0))
+    except Exception as e:
+        print(f"Error getting current coins: {e}")
+
+    new_coins = current_coins + coins_to_add
+
+    update_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/UpdateUserData"
+    update_response = requests.post(update_data_url, headers=headers, json={
+        "PlayFabId": playfab_id,
+        "Data": {
+            "Coins": str(new_coins)
+        }
+    })
+
+    return update_response.ok
+
