@@ -1,13 +1,13 @@
 import stripe
 from config.settings import STRIPE_SECRET_KEY, CHECKOUT_SUCCESS_URL, CHECKOUT_CANCEL_URL
-from config.events import CASH_UPDATED_EVENT, COINS_UPDATED_EVENT
-from services.playfab_service import update_playfab_cash, update_playfab_coins, get_currency_packs
+from config.events import CASH_UPDATED_EVENT, COINS_UPDATED_EVENT, COIN_MODEL_UNLOCKED_EVENT
+from services.playfab_service import update_playfab_cash, update_playfab_coins, unlock_coin_model, get_currency_packs, get_models
 from services.websocket_instance import manager
 import asyncio
 
 stripe.api_key = STRIPE_SECRET_KEY
 
-def create_checkout_session(data):
+def currency_pack_checkout_session(data):
     currency_packs = get_currency_packs()
     pack = currency_packs.get(data.pack_id)
 
@@ -35,6 +35,7 @@ def create_checkout_session(data):
                 "type": currency_type,
                 "amount": str(amount),
                 "playfab_id": data.playfab_id,
+                "item_type": data.item_type
             },
             mode="payment",
             success_url=CHECKOUT_SUCCESS_URL,
@@ -47,6 +48,37 @@ def create_checkout_session(data):
         return None, str(e)
 
 
+def model_checkout_session(data):
+    models = get_models()
+    model = models.get(data.pack_id)
+    if not model:
+        return None, "Invalid model ID"
+    try:
+        session = stripe.checkout.Session.create(
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": data.pack_id
+                    },
+                    "unit_amount": model["price_cents"],
+                },
+                "quantity": 1,
+            }],
+            metadata={
+                "email": data.email,
+                "model_id": data.pack_id,
+                "playfab_id": data.playfab_id,
+                "item_type": data.item_type
+            },
+            mode="payment",
+            success_url=CHECKOUT_SUCCESS_URL,
+            cancel_url=CHECKOUT_CANCEL_URL,
+            customer_email=data.email,
+        )
+        return session.url, None
+    except Exception as e:
+        return None, str(e)
 
 def handle_webhook(event):
 
@@ -55,16 +87,31 @@ def handle_webhook(event):
 
     session = event["data"]["object"]
     metadata = session["metadata"]
-    currency_type = metadata["type"]
-    amount = int(metadata["amount"])
-    playfab_id = metadata.get("playfab_id")
+    item_type = metadata.get("item_type")
 
-    if playfab_id:
-        if currency_type == "cash":
-            success = update_playfab_cash(playfab_id, amount)
+    if item_type == "currency":
+        currency_type = metadata["type"]
+        amount = int(metadata["amount"])
+        playfab_id = metadata.get("playfab_id")
+
+        if playfab_id:
+            if currency_type == "cash":
+                success = update_playfab_cash(playfab_id, amount)
+                if success:
+                    asyncio.create_task(manager.send_event(playfab_id, CASH_UPDATED_EVENT))
+            elif currency_type == "coin":
+                success = update_playfab_coins(playfab_id, amount)
+                if success:
+                    asyncio.create_task(manager.send_event(playfab_id, COINS_UPDATED_EVENT))
+
+    elif item_type == "model":
+        model_id = metadata.get("model_id")
+        playfab_id = metadata.get("playfab_id")
+        if playfab_id:
+            success = unlock_coin_model(playfab_id, model_id)
             if success:
-                asyncio.create_task(manager.send_event(playfab_id, CASH_UPDATED_EVENT))
-        elif currency_type == "coin":
-            success = update_playfab_coins(playfab_id, amount)
-            if success:
-                asyncio.create_task(manager.send_event(playfab_id, COINS_UPDATED_EVENT))
+                asyncio.create_task(manager.send_event(playfab_id, COIN_MODEL_UNLOCKED_EVENT))
+
+    else:
+        print("Unhandled Stripe session with unknown purpose.")
+

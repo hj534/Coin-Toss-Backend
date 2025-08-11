@@ -1,7 +1,7 @@
 import json
 import requests
 from config.settings import PLAYFAB_TITLE_ID, PLAYFAB_SECRET_KEY
-from config.constants import CURRENCY_PACKS
+from config.constants import CURRENCY_PACKS, COIN_MODELS
 
 def get_currency_packs():
     API_URL = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Server/GetTitleData"
@@ -41,7 +41,40 @@ def get_currency_packs():
         return {"error": str(e)}
 
 
+def get_models():
+    API_URL = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Server/GetTitleData"
 
+    headers = {
+        "Content-Type": "application/json",
+        "X-SecretKey": PLAYFAB_SECRET_KEY
+    }
+
+    request_body = {
+        "Keys": [COIN_MODELS]
+    }
+
+    try:
+        response = requests.post(API_URL, headers=headers, data=json.dumps(request_body))
+        response.raise_for_status()
+
+        result = response.json()
+
+        if result.get("code") == 200:
+            title_data = result.get("data", {}).get("Data", {})
+            models_json = title_data.get(COIN_MODELS)
+            if models_json:
+                try:
+                    models_dict = json.loads(models_json)
+                    return models_dict
+                except Exception as e:
+                    return {"error": f"Failed to parse COIN_MODELS: {e}"}
+            else:
+                return {"error": "COIN_MODELS not found in title data"}
+        else:
+            return {"error": result.get('errorMessage')}
+
+    except requests.exceptions.RequestException as e:
+        return {"error": str(e)}
 
 def update_playfab_cash(playfab_id: str, cash_to_add: int):
     get_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/GetUserData"
@@ -94,3 +127,41 @@ def update_playfab_coins(playfab_id: str, coins_to_add: int):
 
     return update_response.ok
 
+
+
+def unlock_coin_model(playfab_id: str, model_id: str):
+    get_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/GetUserData"
+    update_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/UpdateUserData"
+
+    headers = {
+        "X-SecretKey": PLAYFAB_SECRET_KEY
+    }
+
+    try:
+        
+        get_response = requests.post(get_data_url, headers=headers, json={"PlayFabId": playfab_id})
+        get_response.raise_for_status()
+
+        user_data = get_response.json().get("data", {}).get("Data", {})
+        unlocked_models_json = user_data.get("UNLOCKED_COINS", {}).get("Value", "{}")
+
+        # Parse it (or initialize an empty dict)
+        unlocked_models = json.loads(unlocked_models_json) if unlocked_models_json else {}
+
+        
+        unlocked_models[model_id] = True
+
+        
+        update_response = requests.post(update_data_url, headers=headers, json={
+            "PlayFabId": playfab_id,
+            "Data": {
+                "UNLOCKED_COINS": json.dumps(unlocked_models)
+            }
+        })
+        update_response.raise_for_status()
+
+        return update_response.ok
+
+    except Exception as e:
+        print(f"Error unlocking model {model_id} for user {playfab_id}: {e}")
+        return False
