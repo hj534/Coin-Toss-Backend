@@ -3,9 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from routes.payment_routes import router as payment_router
 from routes.websocket_routes import router as websocket_router
 from routes.stripe_redirects import router as stripe_redirects_router
+from routes.tournament_routes import router as tournament_routes_router
 
 from services.db import init_db_pool, close_db_pool
-from routes import debug_routes
 
 app = FastAPI()
 app.add_middleware(
@@ -18,7 +18,7 @@ app.add_middleware(
 app.include_router(payment_router)
 app.include_router(websocket_router)
 app.include_router(stripe_redirects_router)
-app.include_router(debug_routes.router)
+app.include_router(tournament_routes_router)
 
 @app.get("/")
 def root():

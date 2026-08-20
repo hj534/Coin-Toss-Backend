@@ -1,0 +1,78 @@
+CREATE TABLE tournament_participants (
+    id SERIAL PRIMARY KEY,
+
+    tournament_id INT NOT NULL
+        REFERENCES tournaments(id)
+        ON DELETE CASCADE,
+
+    playfab_id VARCHAR(100) NOT NULL,
+
+    display_name VARCHAR(100),
+
+    registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    eliminated BOOLEAN NOT NULL DEFAULT FALSE,
+
+    final_position INT,
+
+    UNIQUE (tournament_id, playfab_id)
+);
+
+
+
+
+
+
+CREATE TABLE tournament_participants (
+    id SERIAL PRIMARY KEY,
+
+    tournament_id INT NOT NULL
+        REFERENCES tournaments(id)
+        ON DELETE CASCADE,
+
+    playfab_id VARCHAR(100) NOT NULL,
+
+    display_name VARCHAR(100),
+
+    registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    eliminated BOOLEAN NOT NULL DEFAULT FALSE,
+
+    final_position INT,
+
+    UNIQUE (tournament_id, playfab_id)
+);
+
+
+
+
+CREATE TABLE tournament_matches (
+    id SERIAL PRIMARY KEY,
+
+    tournament_id INT NOT NULL
+        REFERENCES tournaments(id)
+        ON DELETE CASCADE,
+
+    round_number INT NOT NULL,
+
+    match_number INT NOT NULL,
+
+    player1_id INT
+        REFERENCES tournament_participants(id),
+
+    player2_id INT
+        REFERENCES tournament_participants(id),
+
+    winner_id INT
+        REFERENCES tournament_participants(id),
+
+    status VARCHAR(30) NOT NULL DEFAULT 'pending',
+
+    scheduled_start_time TIMESTAMPTZ,
+
+    fusion_room_name VARCHAR(200),
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    completed_at TIMESTAMPTZ
+);
