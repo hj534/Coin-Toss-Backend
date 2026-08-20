@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from services.db import get_pool
 
-router = APIRouter(prefix="/debug", tags=["debug"])
+router = APIRouter()
 
 
 @router.get("/db-check")
