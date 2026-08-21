@@ -19,3 +19,8 @@ class ConnectionManager:
         if websocket:
             await websocket.send_text(event)
 
+    async def broadcast_event(self, event: str):
+      print(f"Broadcasting {event} to all connected websockets")
+      for websocket in self.active_connections.values():
+        await websocket.send_text(event)
+

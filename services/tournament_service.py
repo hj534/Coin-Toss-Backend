@@ -1,4 +1,6 @@
 from services.db import get_pool
+from services.websocket_instance import manager
+from config.events import TOURNAMENT_UPDATED_EVENT
 from models.tournament import (
     TournamentCreate,
     TournamentOut,
@@ -72,4 +74,6 @@ class TournamentService:
                 """,
                 payload.tournament_id,
             )
+        print(f"Participant registered: {payload.playfab_id} in tournament {payload.tournament_id}")
+        await manager.broadcast(TOURNAMENT_UPDATED_EVENT)
         return ParticipantOut(**dict(row))
