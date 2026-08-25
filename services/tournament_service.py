@@ -39,8 +39,6 @@ class TournamentService:
         async with pool.acquire() as conn:
             async with conn.transaction():
 
-                print("REGISTER: transaction started")
-
                 tournament = await conn.fetchrow(
                     """
                     SELECT id, max_players, current_players
@@ -71,7 +69,6 @@ class TournamentService:
                     payload.display_name,
                 )
 
-                print("REGISTER: participant inserted", row)
 
                 await conn.execute(
                     """
@@ -82,14 +79,10 @@ class TournamentService:
                     payload.tournament_id,
                 )
 
-                print("REGISTER: player count updated")
-
-        print("REGISTER: transaction committed")
 
         await manager.broadcast_event(
             f"{TOURNAMENT_UPDATED_EVENT}:{payload.tournament_id}"
         )
 
-        print("REGISTER: websocket event sent")
 
         return ParticipantOut(**dict(row))
