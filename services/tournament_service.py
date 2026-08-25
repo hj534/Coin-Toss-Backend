@@ -86,3 +86,20 @@ class TournamentService:
 
 
         return ParticipantOut(**dict(row))
+    
+    
+    
+    async def get_tournament_participants(self, tournament_id: int) -> list[ParticipantOut]:
+     pool = get_pool()
+
+     rows = await pool.fetch(
+        """
+        SELECT *
+        FROM tournament_participants
+        WHERE tournament_id = $1
+        ORDER BY id
+        """,
+        tournament_id,
+     )
+
+     return [ParticipantOut(**dict(row)) for row in rows]

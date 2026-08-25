@@ -32,3 +32,7 @@ class ParticipantOut(BaseModel):
     registered_at: datetime
     eliminated: bool
     final_position: int | None
+    
+class ParticipantListOut(BaseModel):
+    tournament_id: int
+    participants: list[ParticipantOut]

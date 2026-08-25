@@ -19,3 +19,8 @@ async def create_tournament(payload: TournamentCreate):
 @router.post("/register_participant_in_tournament/", response_model=ParticipantOut)
 async def register_participant(payload: ParticipantRegister):
     return await service.register_participant(payload)
+
+
+@router.get("/get_participants_of_tournament/{tournament_id}/", response_model=list[ParticipantOut])
+async def get_tournament_participants(tournament_id: int):
+    return await service.get_tournament_participants(tournament_id)
