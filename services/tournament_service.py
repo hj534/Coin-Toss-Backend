@@ -12,6 +12,7 @@ from models.tournament import (
 class TournamentService:
 
     async def get_all_tournaments(self) -> list[TournamentOut]:
+        print("Fetching all tournaments from the database")
         pool = get_pool()
         rows = await pool.fetch("SELECT * FROM tournaments ORDER BY id")
         return [TournamentOut(**dict(r)) for r in rows]
@@ -31,49 +32,64 @@ class TournamentService:
         return TournamentOut(**dict(row))
 
     async def register_participant(self, payload: ParticipantRegister) -> ParticipantOut:
+        print("REGISTER: started", payload)
+
         pool = get_pool()
+
         async with pool.acquire() as conn:
-         async with conn.transaction():
+            async with conn.transaction():
 
-            # Lock tournament row while checking capacity
-            tournament = await conn.fetchrow(
-                """
-                SELECT id, max_players, current_players
-                FROM tournaments
-                WHERE id = $1
-                FOR UPDATE
-                """,
-                payload.tournament_id,
-            )
+                print("REGISTER: transaction started")
 
-            if not tournament:
-                raise ValueError("Tournament not found")
+                tournament = await conn.fetchrow(
+                    """
+                    SELECT id, max_players, current_players
+                    FROM tournaments
+                    WHERE id = $1
+                    FOR UPDATE
+                    """,
+                    payload.tournament_id,
+                )
 
-            if tournament["current_players"] >= tournament["max_players"]:
-                raise ValueError("Tournament is full")
+                print("REGISTER: tournament fetched", tournament)
 
-            # Register participant
-            row = await conn.fetchrow(
-                """
-                INSERT INTO tournament_participants
-                    (tournament_id, playfab_id, display_name)
-                VALUES ($1, $2, $3)
-                RETURNING *
-                """,
-                payload.tournament_id,
-                payload.playfab_id,
-                payload.display_name,
-            )
+                if not tournament:
+                    raise ValueError("Tournament not found")
 
-            # Increment current player count
-            await conn.execute(
-                """
-                UPDATE tournaments
-                SET current_players = current_players + 1
-                WHERE id = $1
-                """,
-                payload.tournament_id,
-            )
-        print(f"Participant registered: {payload.playfab_id} in tournament {payload.tournament_id}")
-        await manager.broadcast(TOURNAMENT_UPDATED_EVENT)
+                if tournament["current_players"] >= tournament["max_players"]:
+                    raise ValueError("Tournament is full")
+
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO tournament_participants
+                        (tournament_id, playfab_id, display_name)
+                    VALUES ($1, $2, $3)
+                    RETURNING *
+                    """,
+                    payload.tournament_id,
+                    payload.playfab_id,
+                    payload.display_name,
+                )
+
+                print("REGISTER: participant inserted", row)
+
+                await conn.execute(
+                    """
+                    UPDATE tournaments
+                    SET current_players = current_players + 1
+                    WHERE id = $1
+                    """,
+                    payload.tournament_id,
+                )
+
+                print("REGISTER: player count updated")
+
+        print("REGISTER: transaction committed")
+
+        await manager.broadcast_event(
+            f"{TOURNAMENT_UPDATED_EVENT}:{payload.tournament_id}"
+        )
+
+        print("REGISTER: websocket event sent")
+
         return ParticipantOut(**dict(row))
