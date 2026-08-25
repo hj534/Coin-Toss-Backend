@@ -6,6 +6,7 @@ from routes.stripe_redirects import router as stripe_redirects_router
 from routes.tournament_routes import router as tournament_routes_router
 
 from services.db import init_db_pool, close_db_pool
+from services.scheduler import start_scheduler, stop_scheduler
 
 app = FastAPI()
 app.add_middleware(
@@ -28,7 +29,9 @@ def root():
 @app.on_event("startup")
 async def on_startup():
     await init_db_pool()
+    start_scheduler()
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    stop_scheduler()
     await close_db_pool()
