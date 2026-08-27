@@ -103,3 +103,77 @@ class TournamentService:
      )
 
      return [ParticipantOut(**dict(row)) for row in rows]
+
+    async def _generate_round_1(self, conn, tournament_id: int):
+        participants = await conn.fetch(
+            """
+            SELECT id
+            FROM tournament_participants
+            WHERE tournament_id = $1
+              AND eliminated = FALSE
+            ORDER BY registered_at, id
+            """,
+            tournament_id,
+        )
+
+        participant_count = len(participants)
+        if participant_count < 2 or participant_count % 2 != 0:
+            raise ValueError(
+                f"Round 1 requires an even number of at least two participants; "
+                f"found {participant_count} for tournament {tournament_id}"
+            )
+
+        existing_matches = await conn.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM tournament_matches
+            WHERE tournament_id = $1
+              AND round_number = 1
+            """,
+            tournament_id,
+        )
+
+        if existing_matches:
+            raise ValueError(
+                f"Round 1 matches already exist for tournament {tournament_id}"
+            )
+
+        matchups = [
+            (match_number, participants[index]["id"], participants[index + 1]["id"])
+            for match_number, index in enumerate(range(0, participant_count, 2), start=1)
+        ]
+
+        for match_number, player1_id, player2_id in matchups:
+            fusion_room_name = (
+                f"tournament_{tournament_id}_round_1_match_{match_number}"
+            )
+
+            await conn.execute(
+                """
+                INSERT INTO tournament_matches
+                    (
+                        tournament_id,
+                        round_number,
+                        match_number,
+                        player1_id,
+                        player2_id,
+                        scheduled_start_time,
+                        fusion_room_name
+                    )
+                VALUES ($1, 1, $2, $3, $4, NOW(), $5)
+                """,
+                tournament_id,
+                match_number,
+                player1_id,
+                player2_id,
+                fusion_room_name,
+            )
+
+        await conn.execute(
+            """
+            UPDATE tournaments
+            SET status = 'started'
+            WHERE id = $1
+            """,
+            tournament_id,
+        )

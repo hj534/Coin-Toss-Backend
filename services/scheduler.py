@@ -12,6 +12,7 @@ _task: asyncio.Task | None = None
 
 async def _check_due_tournaments():
     pool = get_pool()
+    started_tournaments: list[tuple[int, list[str]]] = []
 
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -28,7 +29,19 @@ async def _check_due_tournaments():
             for row in due:
                 if row["current_players"] == row["max_players"]:
                     await service._generate_round_1(conn, row["id"])
-                    # broadcast happens after the transaction commits, below
+                    participants = await conn.fetch(
+                        """
+                        SELECT playfab_id
+                        FROM tournament_participants
+                        WHERE tournament_id = $1
+                        ORDER BY registered_at, id
+                        """,
+                        row["id"],
+                    )
+                    started_tournaments.append(
+                        (row["id"], [participant["playfab_id"] for participant in participants])
+                    )
+                    # notifications happen after the transaction commits, below
                 else:
                     print(
                         f"Tournament {row['id']} reached start_time but only "
@@ -36,11 +49,13 @@ async def _check_due_tournaments():
                         f"registered — leaving as-is for now."
                     )
 
-    # Broadcast for any tournaments that just started (outside the transaction,
-    # same pattern as register_participant)
-    for row in due:
-        if row["current_players"] == row["max_players"]:
-            await manager.broadcast_event(f"{TOURNAMENT_UPDATED_EVENT}:{row['id']}")
+    # Notify participants for any tournaments that just started after commit.
+    for tournament_id, playfab_ids in started_tournaments:
+        for playfab_id in playfab_ids:
+            await manager.send_event(
+                playfab_id,
+                f"{TOURNAMENT_UPDATED_EVENT}:{tournament_id}",
+            )
 
 
 async def _loop():
