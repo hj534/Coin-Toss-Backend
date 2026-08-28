@@ -1,7 +1,7 @@
 import asyncio
 from services.db import get_pool
 from services.websocket_instance import manager
-from config.events import TOURNAMENT_UPDATED_EVENT
+from config.events import TOURNAMENT_STARTED_EVENT
 from services.tournament_service import TournamentService
 
 POLL_INTERVAL_SECONDS = 15
@@ -54,7 +54,7 @@ async def _check_due_tournaments():
         for playfab_id in playfab_ids:
             await manager.send_event(
                 playfab_id,
-                f"{TOURNAMENT_UPDATED_EVENT}:{tournament_id}",
+                f"{TOURNAMENT_STARTED_EVENT}:{tournament_id}",
             )
 
 
