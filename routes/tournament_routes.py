@@ -1,5 +1,5 @@
-from fastapi import APIRouter
-from models.tournament import TournamentCreate, TournamentOut, ParticipantRegister, ParticipantOut
+from fastapi import APIRouter, HTTPException
+from models.tournament import TournamentCreate, TournamentOut, ParticipantRegister, ParticipantOut, TournamentMatchOut
 from services.tournament_service import TournamentService
 
 router = APIRouter()
@@ -24,3 +24,17 @@ async def register_participant(payload: ParticipantRegister):
 @router.get("/get_participants_of_tournament/{tournament_id}/", response_model=list[ParticipantOut])
 async def get_tournament_participants(tournament_id: int):
     return await service.get_tournament_participants(tournament_id)
+
+
+@router.get(
+    "/get_my_tournament_match/{tournament_id}/{playfab_id}/",
+    response_model=TournamentMatchOut,
+)
+async def get_my_tournament_match(tournament_id: int, playfab_id: str):
+    match = await service.get_my_tournament_match(tournament_id, playfab_id)
+    if not match:
+        raise HTTPException(
+            status_code=404,
+            detail="No pending or in-progress tournament match found for this player",
+        )
+    return match

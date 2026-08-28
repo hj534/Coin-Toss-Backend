@@ -6,6 +6,7 @@ from models.tournament import (
     TournamentOut,
     ParticipantRegister,
     ParticipantOut,
+    TournamentMatchOut,
 )
 
 
@@ -103,6 +104,47 @@ class TournamentService:
      )
 
      return [ParticipantOut(**dict(row)) for row in rows]
+
+    async def get_my_tournament_match(
+        self,
+        tournament_id: int,
+        playfab_id: str,
+    ) -> TournamentMatchOut | None:
+        pool = get_pool()
+        row = await pool.fetchrow(
+            """
+            SELECT
+                tournament_match.id,
+                tournament_match.tournament_id,
+                tournament_match.round_number,
+                tournament_match.match_number,
+                tournament_match.status,
+                tournament_match.scheduled_start_time,
+                tournament_match.fusion_room_name,
+                CASE
+                    WHEN player1.playfab_id = $2 THEN player2.playfab_id
+                    ELSE player1.playfab_id
+                END AS opponent_playfab_id,
+                CASE
+                    WHEN player1.playfab_id = $2 THEN player2.display_name
+                    ELSE player1.display_name
+                END AS opponent_display_name
+            FROM tournament_matches AS tournament_match
+            JOIN tournament_participants AS player1
+                ON player1.id = tournament_match.player1_id
+            JOIN tournament_participants AS player2
+                ON player2.id = tournament_match.player2_id
+            WHERE tournament_match.tournament_id = $1
+              AND (player1.playfab_id = $2 OR player2.playfab_id = $2)
+              AND tournament_match.status IN ('pending', 'in_progress')
+            ORDER BY tournament_match.round_number DESC, tournament_match.match_number
+            LIMIT 1
+            """,
+            tournament_id,
+            playfab_id,
+        )
+
+        return TournamentMatchOut(**dict(row)) if row else None
 
     async def _generate_round_1(self, conn, tournament_id: int):
         participants = await conn.fetch(

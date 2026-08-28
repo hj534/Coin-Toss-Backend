@@ -32,6 +32,18 @@ class ParticipantOut(BaseModel):
     registered_at: datetime
     eliminated: bool
     final_position: int | None
+
+
+class TournamentMatchOut(BaseModel):
+    id: int
+    tournament_id: int
+    round_number: int
+    match_number: int
+    status: str
+    scheduled_start_time: datetime | None
+    fusion_room_name: str | None
+    opponent_playfab_id: str
+    opponent_display_name: str | None
     
 class ParticipantListOut(BaseModel):
     tournament_id: int
