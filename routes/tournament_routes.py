@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from models.tournament import TournamentCreate, TournamentOut, ParticipantRegister, ParticipantOut, TournamentMatchOut
+from models.tournament import MatchResultSubmit
 from services.tournament_service import TournamentService
 
 router = APIRouter()
@@ -38,3 +39,7 @@ async def get_my_tournament_match(tournament_id: int, playfab_id: str):
             detail="No pending or in-progress tournament match found for this player",
         )
     return match
+
+@router.post("/submit_match_result/")
+async def submit_match_result(self, payload: MatchResultSubmit):
+    return await service.submit_match_result(payload)

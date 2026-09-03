@@ -1,11 +1,22 @@
 from pydantic import BaseModel
 from datetime import datetime
-
+from pydantic import BaseModel, field_validator
+ 
 
 class TournamentCreate(BaseModel):
     name: str
+    max_players: int
     start_time: datetime
-    max_players: int = 4
+
+    @field_validator("max_players")
+    @classmethod
+    def validate_max_players(cls, value: int) -> int:
+        allowed_values = {4, 8, 16, 32, 64}
+        if value not in allowed_values:
+            raise ValueError(
+                f"max_players must be one of {sorted(allowed_values)}"
+            )
+        return value
 
 
 class TournamentOut(BaseModel):
@@ -48,3 +59,7 @@ class TournamentMatchOut(BaseModel):
 class ParticipantListOut(BaseModel):
     tournament_id: int
     participants: list[ParticipantOut]
+    
+class MatchResultSubmit(BaseModel):
+    match_id: int
+    winner_playfab_id: str
