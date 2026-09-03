@@ -41,5 +41,5 @@ async def get_my_tournament_match(tournament_id: int, playfab_id: str):
     return match
 
 @router.post("/submit_match_result/")
-async def submit_match_result(self, payload: MatchResultSubmit):
+async def submit_match_result(payload: MatchResultSubmit):
     return await service.submit_match_result(payload)
