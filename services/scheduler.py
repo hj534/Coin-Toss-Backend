@@ -63,8 +63,8 @@ async def _loop():
         try:
             print("Running scheduler tick")
             await _check_due_tournaments()
+            await _check_expired_tournaments()
         except Exception as e:
-            # never let one bad tick kill the whole background loop
             print(f"Scheduler tick failed: {e}")
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
@@ -77,3 +77,23 @@ def start_scheduler():
 def stop_scheduler():
     if _task:
         _task.cancel()
+
+
+async def _check_expired_tournaments():
+    pool = get_pool()
+
+    expired = await pool.fetch(
+        """
+        UPDATE tournaments
+        SET status = 'cancelled'
+        WHERE end_time <= NOW()
+          AND status NOT IN ('completed', 'cancelled')
+        RETURNING id, name
+        """
+    )
+
+    for tournament in expired:
+        print(
+            f"Tournament {tournament['id']} ({tournament['name']}) "
+            f"expired — auto-cancelled."
+        )

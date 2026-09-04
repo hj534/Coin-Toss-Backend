@@ -13,8 +13,15 @@ from models.tournament import (
     TournamentMatchOut,
     MatchResultSubmit,
 )
+from datetime import timedelta
 
 
+TOURNAMENT_DURATIONS = {
+    "free": timedelta(hours=3),
+    "daily": timedelta(days=1),
+    "weekly": timedelta(days=7),
+    "monthly": timedelta(days=30),
+}
 class TournamentService:
 
 
@@ -28,15 +35,18 @@ class TournamentService:
 
     async def create_tournament(self, payload: TournamentCreate) -> TournamentOut:
         pool = get_pool()
+        end_time = payload.start_time + TOURNAMENT_DURATIONS[payload.type]
         row = await pool.fetchrow(
             """
-            INSERT INTO tournaments (name, start_time, max_players)
-            VALUES ($1, $2, $3)
+            INSERT INTO tournaments (name, start_time, end_time, max_players, type)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *
             """,
             payload.name,
             payload.start_time,
+            end_time,
             payload.max_players,
+            payload.type,
         )
         return TournamentOut(**dict(row))
 

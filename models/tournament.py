@@ -23,11 +23,12 @@ class TournamentOut(BaseModel):
     id: int
     name: str
     status: str
+    type: str
     max_players: int
     current_players: int
     start_time: datetime
+    end_time: datetime
     created_at: datetime
-
 
 class ParticipantRegister(BaseModel):
     tournament_id: int
