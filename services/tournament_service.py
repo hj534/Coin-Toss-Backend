@@ -1,6 +1,10 @@
 from services.db import get_pool
 from services.websocket_instance import manager
-from config.events import TOURNAMENT_UPDATED_EVENT
+from config.events import (
+    TOURNAMENT_UPDATED_EVENT,
+    TOURNAMENT_ROUND_STARTED_EVENT,
+    TOURNAMENT_COMPLETED_EVENT,
+)
 from models.tournament import (
     TournamentCreate,
     TournamentOut,
