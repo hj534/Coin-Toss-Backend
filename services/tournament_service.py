@@ -48,15 +48,14 @@ class TournamentService:
 
         if existing > 0:
             raise ValueError(
-                f"An active '{payload.type}' tournament already exists. "
-                f"Wait until it finishes before creating a new one."
+                f"An active '{payload.type}' tournament already exists."
             )
 
         end_time = payload.start_time + TOURNAMENT_DURATIONS[payload.type]
         row = await pool.fetchrow(
             """
-            INSERT INTO tournaments (name, start_time, end_time, max_players, type)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO tournaments (name, start_time, end_time, max_players, type, sets, entry_fee)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
             """,
             payload.name,
@@ -64,6 +63,8 @@ class TournamentService:
             end_time,
             payload.max_players,
             payload.type,
+            payload.sets,
+            payload.entry_fee,
         )
         return TournamentOut(**dict(row))
 

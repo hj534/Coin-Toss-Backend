@@ -7,6 +7,8 @@ class TournamentCreate(BaseModel):
     max_players: int
     start_time: datetime
     type: str
+    sets: int
+    entry_fee: int
 
     @field_validator("max_players")
     @classmethod
@@ -24,18 +26,35 @@ class TournamentCreate(BaseModel):
             raise ValueError(f"type must be one of {sorted(allowed_types)}")
         return value
 
+    @field_validator("sets")
+    @classmethod
+    def validate_sets(cls, value: int) -> int:
+        if value < 1 or value % 2 == 0:
+            raise ValueError("sets must be a positive odd number (e.g. 1, 3, 5, 7)")
+        return value
+
+    @field_validator("entry_fee")
+    @classmethod
+    def validate_entry_fee(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("entry_fee cannot be negative")
+        return value
+
 
 class TournamentOut(BaseModel):
     id: int
     name: str
     status: str
     type: str
+    sets: int
+    entry_fee: int
     max_players: int
     current_players: int
     start_time: datetime
     end_time: datetime
     created_at: datetime
 
+ 
 class ParticipantRegister(BaseModel):
     tournament_id: int
     playfab_id: str
