@@ -43,3 +43,21 @@ async def get_my_tournament_match(tournament_id: int, playfab_id: str):
 @router.post("/submit_match_result/")
 async def submit_match_result(payload: MatchResultSubmit):
     return await service.submit_match_result(payload)
+
+
+
+@router.get("/get_free_tournaments/", response_model=list[TournamentOut])
+async def get_free_tournaments():
+    return await service.get_free_tournaments()
+
+@router.get("/get_daily_tournaments/", response_model=list[TournamentOut])
+async def get_daily_tournaments():
+    return await service.get_daily_tournaments()
+
+@router.get("/get_weekly_tournaments/", response_model=list[TournamentOut])
+async def get_weekly_tournaments():
+    return await service.get_weekly_tournaments()
+
+@router.get("/get_monthly_tournaments/", response_model=list[TournamentOut])
+async def get_monthly_tournaments():
+    return await service.get_monthly_tournaments()
