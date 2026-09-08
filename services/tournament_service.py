@@ -35,6 +35,23 @@ class TournamentService:
 
     async def create_tournament(self, payload: TournamentCreate) -> TournamentOut:
         pool = get_pool()
+
+        existing = await pool.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM tournaments
+            WHERE type = $1
+              AND status NOT IN ('completed', 'cancelled')
+            """,
+            payload.type,
+        )
+
+        if existing > 0:
+            raise ValueError(
+                f"An active '{payload.type}' tournament already exists. "
+                f"Wait until it finishes before creating a new one."
+            )
+
         end_time = payload.start_time + TOURNAMENT_DURATIONS[payload.type]
         row = await pool.fetchrow(
             """
