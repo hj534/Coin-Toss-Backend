@@ -2,20 +2,26 @@ from pydantic import BaseModel
 from datetime import datetime
 from pydantic import BaseModel, field_validator
  
-
 class TournamentCreate(BaseModel):
     name: str
     max_players: int
     start_time: datetime
+    type: str
 
     @field_validator("max_players")
     @classmethod
     def validate_max_players(cls, value: int) -> int:
         allowed_values = {4, 8, 16, 32, 64}
         if value not in allowed_values:
-            raise ValueError(
-                f"max_players must be one of {sorted(allowed_values)}"
-            )
+            raise ValueError(f"max_players must be one of {sorted(allowed_values)}")
+        return value
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, value: str) -> str:
+        allowed_types = {"free", "daily", "weekly", "monthly"}
+        if value not in allowed_types:
+            raise ValueError(f"type must be one of {sorted(allowed_types)}")
         return value
 
 
