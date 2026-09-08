@@ -383,3 +383,24 @@ class TournamentService:
         if tournament_finished_data:
             tournament_id, champion_playfab_id = tournament_finished_data
             await manager.send_event(champion_playfab_id, f"{TOURNAMENT_COMPLETED_EVENT}:{tournament_id}")
+            
+            
+    async def _get_tournaments_by_type(self, tournament_type: str) -> list[TournamentOut]:
+        pool = get_pool()
+        rows = await pool.fetch(
+            "SELECT * FROM tournaments WHERE type = $1 ORDER BY id",
+            tournament_type,
+        )
+        return [TournamentOut(**dict(r)) for r in rows]
+
+    async def get_free_tournaments(self) -> list[TournamentOut]:
+        return await self._get_tournaments_by_type("free")
+
+    async def get_daily_tournaments(self) -> list[TournamentOut]:
+        return await self._get_tournaments_by_type("daily")
+
+    async def get_weekly_tournaments(self) -> list[TournamentOut]:
+        return await self._get_tournaments_by_type("weekly")
+
+    async def get_monthly_tournaments(self) -> list[TournamentOut]:
+        return await self._get_tournaments_by_type("monthly")
