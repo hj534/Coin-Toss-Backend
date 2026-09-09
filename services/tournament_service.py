@@ -12,6 +12,7 @@ from models.tournament import (
     ParticipantOut,
     TournamentMatchOut,
     MatchResultSubmit,
+    BracketMatchOut,
 )
 from datetime import timedelta
 
