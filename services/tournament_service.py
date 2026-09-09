@@ -445,3 +445,25 @@ class TournamentService:
 
     async def get_monthly_tournaments(self) -> list[TournamentOut]:
         return await self._get_tournaments_by_type("monthly")
+    
+    async def get_tournament_bracket(self, tournament_id: int) -> list[BracketMatchOut]:
+        pool = get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT
+                tm.round_number,
+                tm.match_number,
+                tm.status,
+                p1.display_name AS player1_display_name,
+                p2.display_name AS player2_display_name,
+                pw.display_name AS winner_display_name
+            FROM tournament_matches tm
+            LEFT JOIN tournament_participants p1 ON p1.id = tm.player1_id
+            LEFT JOIN tournament_participants p2 ON p2.id = tm.player2_id
+            LEFT JOIN tournament_participants pw ON pw.id = tm.winner_id
+            WHERE tm.tournament_id = $1
+            ORDER BY tm.round_number, tm.match_number
+            """,
+            tournament_id,
+        )
+        return [BracketMatchOut(**dict(r)) for r in rows]

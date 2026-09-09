@@ -89,3 +89,11 @@ class ParticipantListOut(BaseModel):
 class MatchResultSubmit(BaseModel):
     match_id: int
     winner_playfab_id: str
+
+class BracketMatchOut(BaseModel):
+    round_number: int
+    match_number: int
+    status: str
+    player1_display_name: str | None
+    player2_display_name: str | None
+    winner_display_name: str | None
