@@ -3,6 +3,7 @@ from services.db import get_pool
 from services.websocket_instance import manager
 from config.events import TOURNAMENT_STARTED_EVENT
 from services.tournament_service import TournamentService
+from config.events import TOURNAMENT_STARTED_EVENT, TOURNAMENT_COMPLETED_EVENT
 
 POLL_INTERVAL_SECONDS = 15
 
@@ -82,18 +83,69 @@ def stop_scheduler():
 async def _check_expired_tournaments():
     pool = get_pool()
 
-    expired = await pool.fetch(
-        """
-        UPDATE tournaments
-        SET status = 'cancelled'
-        WHERE end_time <= NOW()
-          AND status NOT IN ('completed', 'cancelled')
-        RETURNING id, name
-        """
-    )
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            expired = await conn.fetch(
+                """
+                SELECT id, name
+                FROM tournaments
+                WHERE end_time <= NOW()
+                  AND status NOT IN ('completed', 'cancelled')
+                FOR UPDATE
+                """
+            )
 
-    for tournament in expired:
-        print(
-            f"Tournament {tournament['id']} ({tournament['name']}) "
-            f"expired — auto-cancelled."
-        )
+            for tournament in expired:
+                tournament_id = tournament["id"]
+
+                max_round = await conn.fetchval(
+                    "SELECT MAX(round_number) FROM tournament_matches WHERE tournament_id = $1",
+                    tournament_id,
+                )
+
+                if max_round is None:
+                    # koi match kabhi bana hi nahi (players poore nahi hue the)
+                    await conn.execute(
+                        "UPDATE tournaments SET status = 'cancelled' WHERE id = $1",
+                        tournament_id,
+                    )
+                    print(f"Tournament {tournament_id} expired with no matches — cancelled.")
+                    continue
+
+                # sabse aagay wale (deepest round tak pahunche, abhi tak eliminate nahi hue)
+                leaders = await conn.fetch(
+                    """
+                    SELECT DISTINCT p.id, p.playfab_id
+                    FROM tournament_matches tm
+                    JOIN tournament_participants p
+                        ON p.id IN (tm.player1_id, tm.player2_id)
+                    WHERE tm.tournament_id = $1
+                      AND tm.round_number = $2
+                      AND p.eliminated = FALSE
+                    """,
+                    tournament_id,
+                    max_round,
+                )
+
+                for leader in leaders:
+                    await conn.execute(
+                        "INSERT INTO tournament_champions (tournament_id, participant_id) VALUES ($1, $2)",
+                        tournament_id,
+                        leader["id"],
+                    )
+
+                await conn.execute(
+                    "UPDATE tournaments SET status = 'completed' WHERE id = $1",
+                    tournament_id,
+                )
+
+                print(
+                    f"Tournament {tournament_id} ({tournament['name']}) expired — "
+                    f"declared {len(leaders)} joint winner(s)."
+                )
+
+                for leader in leaders:
+                    await manager.send_event(
+                        leader["playfab_id"],
+                        f"{TOURNAMENT_COMPLETED_EVENT}:{tournament_id}",
+                    )

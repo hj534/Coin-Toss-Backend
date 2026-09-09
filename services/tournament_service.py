@@ -281,11 +281,9 @@ class TournamentService:
                 if match["status"] == "completed":
                     raise ValueError("Match already has a result")
 
-                # winner ka playfab_id se uski participant id nikalo
                 winner_row = await conn.fetchrow(
                     """
-                    SELECT id, playfab_id
-                    FROM tournament_participants
+                    SELECT id FROM tournament_participants
                     WHERE id = ANY($1::int[]) AND playfab_id = $2
                     """,
                     [match["player1_id"], match["player2_id"]],
@@ -302,7 +300,6 @@ class TournamentService:
                     else match["player1_id"]
                 )
 
-                # match complete mark karo
                 await conn.execute(
                     """
                     UPDATE tournament_matches
@@ -313,61 +310,87 @@ class TournamentService:
                     payload.match_id,
                 )
 
-                # loser ko eliminate karo
                 await conn.execute(
-                    """
-                    UPDATE tournament_participants
-                    SET eliminated = TRUE
-                    WHERE id = $1
-                    """,
+                    "UPDATE tournament_participants SET eliminated = TRUE WHERE id = $1",
                     loser_id,
                 )
 
-                # check karo poora round complete hua ya nahi
-                pending_in_round = await conn.fetchval(
+                # kitne matches hain is round mein total
+                matches_in_round = await conn.fetchval(
                     """
-                    SELECT COUNT(*)
-                    FROM tournament_matches
+                    SELECT COUNT(*) FROM tournament_matches
                     WHERE tournament_id = $1 AND round_number = $2
-                      AND status != 'completed'
                     """,
                     match["tournament_id"],
                     match["round_number"],
                 )
 
-                if pending_in_round == 0:
-                    # round ke saare winners nikalo, unke match_number ke order mein
-                    winners = await conn.fetch(
+                if matches_in_round == 1:
+                    # ye final match tha - champion mil gaya
+                    await conn.execute(
+                        "UPDATE tournaments SET status = 'completed' WHERE id = $1",
+                        match["tournament_id"],
+                    )
+                    await conn.execute(
+                        "INSERT INTO tournament_champions (tournament_id, participant_id) VALUES ($1, $2)",
+                        match["tournament_id"],
+                        winner_id,
+                    )
+                    champ = await conn.fetchrow(
+                        "SELECT playfab_id FROM tournament_participants WHERE id = $1",
+                        winner_id,
+                    )
+                    tournament_finished_data = (
+                        match["tournament_id"],
+                        [champ["playfab_id"]],
+                    )
+                else:
+                    # apna 'pair partner' match dhoondo (jo mil kar agla round banayega)
+                    partner_match_number = (
+                        match["match_number"] + 1
+                        if match["match_number"] % 2 == 1
+                        else match["match_number"] - 1
+                    )
+
+                    partner = await conn.fetchrow(
                         """
-                        SELECT tm.winner_id
-                        FROM tournament_matches tm
-                        WHERE tm.tournament_id = $1 AND tm.round_number = $2
-                        ORDER BY tm.match_number
+                        SELECT winner_id, status
+                        FROM tournament_matches
+                        WHERE tournament_id = $1 AND round_number = $2 AND match_number = $3
+                        FOR UPDATE
                         """,
                         match["tournament_id"],
                         match["round_number"],
+                        partner_match_number,
                     )
-                    winner_ids = [w["winner_id"] for w in winners]
 
-                    if len(winner_ids) == 1:
-                        # tournament khatam - champion mil gaya
-                        await conn.execute(
-                            "UPDATE tournaments SET status = 'completed' WHERE id = $1",
-                            match["tournament_id"],
-                        )
-                        champ = await conn.fetchrow(
-                            "SELECT playfab_id FROM tournament_participants WHERE id = $1",
-                            winner_ids[0],
-                        )
-                        tournament_finished_data = (
-                            match["tournament_id"],
-                            champ["playfab_id"],
-                        )
-                    else:
-                        # agla round generate karo
+                    if partner and partner["status"] == "completed":
                         next_round = match["round_number"] + 1
-                        for i, mnum in enumerate(range(0, len(winner_ids), 2), start=1):
-                            room_name = f"tournament_{match['tournament_id']}_round_{next_round}_match_{i}"
+                        next_match_number = (
+                            min(match["match_number"], partner_match_number) + 1
+                        ) // 2
+
+                        already_exists = await conn.fetchval(
+                            """
+                            SELECT COUNT(*) FROM tournament_matches
+                            WHERE tournament_id = $1 AND round_number = $2 AND match_number = $3
+                            """,
+                            match["tournament_id"],
+                            next_round,
+                            next_match_number,
+                        )
+
+                        if not already_exists:
+                            if match["match_number"] < partner_match_number:
+                                player1_id, player2_id = winner_id, partner["winner_id"]
+                            else:
+                                player1_id, player2_id = partner["winner_id"], winner_id
+
+                            room_name = (
+                                f"tournament_{match['tournament_id']}"
+                                f"_round_{next_round}_match_{next_match_number}"
+                            )
+
                             await conn.execute(
                                 """
                                 INSERT INTO tournament_matches
@@ -377,32 +400,32 @@ class TournamentService:
                                 """,
                                 match["tournament_id"],
                                 next_round,
-                                i,
-                                winner_ids[mnum],
-                                winner_ids[mnum + 1],
+                                next_match_number,
+                                player1_id,
+                                player2_id,
                                 room_name,
                             )
 
-                        participants = await conn.fetch(
-                            "SELECT playfab_id FROM tournament_participants WHERE id = ANY($1::int[])",
-                            winner_ids,
-                        )
-                        round_finished_data = (
-                            match["tournament_id"],
-                            [p["playfab_id"] for p in participants],
-                        )
+                            participants = await conn.fetch(
+                                "SELECT playfab_id FROM tournament_participants WHERE id = ANY($1::int[])",
+                                [player1_id, player2_id],
+                            )
+                            round_finished_data = (
+                                match["tournament_id"],
+                                [p["playfab_id"] for p in participants],
+                            )
 
-        # transaction ke bahar - notifications
         if round_finished_data:
             tournament_id, playfab_ids = round_finished_data
             for pid in playfab_ids:
                 await manager.send_event(pid, f"{TOURNAMENT_ROUND_STARTED_EVENT}:{tournament_id}")
 
         if tournament_finished_data:
-            tournament_id, champion_playfab_id = tournament_finished_data
-            await manager.send_event(champion_playfab_id, f"{TOURNAMENT_COMPLETED_EVENT}:{tournament_id}")
-            
-            
+            tournament_id, champion_playfab_ids = tournament_finished_data
+            for pid in champion_playfab_ids:
+                await manager.send_event(pid, f"{TOURNAMENT_COMPLETED_EVENT}:{tournament_id}")
+                
+                      
     async def _get_tournaments_by_type(self, tournament_type: str) -> list[TournamentOut]:
         pool = get_pool()
         rows = await pool.fetch(
