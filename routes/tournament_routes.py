@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from models.tournament import TournamentCreate, TournamentOut, ParticipantRegister, ParticipantOut, TournamentMatchOut
+from models.tournament import TournamentCreate, TournamentOut, ParticipantRegister, ParticipantOut, TournamentMatchOut , BracketMatchOut
 from models.tournament import MatchResultSubmit
 from services.tournament_service import TournamentService
 
