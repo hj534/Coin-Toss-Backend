@@ -35,3 +35,8 @@ async def on_startup():
 async def on_shutdown():
     stop_scheduler()
     await close_db_pool()
+    
+    
+@app.get("/user")
+def get_user(name):
+    return {"name": name}

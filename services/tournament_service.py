@@ -430,7 +430,12 @@ class TournamentService:
     async def _get_tournaments_by_type(self, tournament_type: str) -> list[TournamentOut]:
         pool = get_pool()
         rows = await pool.fetch(
-            "SELECT * FROM tournaments WHERE type = $1 ORDER BY id",
+            """
+            SELECT * FROM tournaments
+            WHERE type = $1
+              AND status NOT IN ('completed', 'cancelled')
+            ORDER BY id
+            """,
             tournament_type,
         )
         return [TournamentOut(**dict(r)) for r in rows]
