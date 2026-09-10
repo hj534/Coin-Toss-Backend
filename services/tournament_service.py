@@ -77,6 +77,23 @@ class TournamentService:
         async with pool.acquire() as conn:
             async with conn.transaction():
 
+                already_active = await conn.fetchval(
+                    """
+                    SELECT COUNT(*)
+                    FROM tournament_participants tp
+                    JOIN tournaments t ON t.id = tp.tournament_id
+                    WHERE tp.playfab_id = $1
+                      AND t.status NOT IN ('completed', 'cancelled')
+                    """,
+                    payload.playfab_id,
+                )
+
+                if already_active > 0:
+                    raise ValueError(
+                        "You are already registered in an active tournament. "
+                        "Finish or wait for it to end before joining another."
+                    )
+
                 tournament = await conn.fetchrow(
                     """
                     SELECT id, max_players, current_players
@@ -107,7 +124,6 @@ class TournamentService:
                     payload.display_name,
                 )
 
-
                 await conn.execute(
                     """
                     UPDATE tournaments
@@ -117,15 +133,11 @@ class TournamentService:
                     payload.tournament_id,
                 )
 
-
         await manager.broadcast_event(
             f"{TOURNAMENT_UPDATED_EVENT}:{payload.tournament_id}"
         )
 
-
         return ParticipantOut(**dict(row))
-    
-    
     
     async def get_tournament_participants(self, tournament_id: int) -> list[ParticipantOut]:
      pool = get_pool()
