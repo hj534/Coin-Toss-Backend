@@ -485,3 +485,19 @@ class TournamentService:
             tournament_id,
         )
         return [BracketMatchOut(**dict(r)) for r in rows]
+    
+    async def get_my_active_tournament(self, playfab_id: str) -> TournamentOut | None:
+        pool = get_pool()
+        row = await pool.fetchrow(
+            """
+            SELECT t.*
+            FROM tournaments t
+            JOIN tournament_participants tp ON tp.tournament_id = t.id
+            WHERE tp.playfab_id = $1
+              AND t.status NOT IN ('completed', 'cancelled')
+            ORDER BY tp.registered_at DESC
+            LIMIT 1
+            """,
+            playfab_id,
+        )
+        return TournamentOut(**dict(row)) if row else None

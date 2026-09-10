@@ -68,3 +68,10 @@ async def get_monthly_tournaments():
 @router.get("/get_tournament_bracket/{tournament_id}/", response_model=list[BracketMatchOut])
 async def get_tournament_bracket(tournament_id: int):
     return await service.get_tournament_bracket(tournament_id)
+
+@router.get("/get_my_active_tournament/{playfab_id}/", response_model=TournamentOut)
+async def get_my_active_tournament(playfab_id: str):
+    tournament = await service.get_my_active_tournament(playfab_id)
+    if not tournament:
+        raise HTTPException(status_code=404, detail="No active tournament found for this player")
+    return tournament
