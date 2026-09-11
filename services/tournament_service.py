@@ -170,6 +170,8 @@ class TournamentService:
                 tournament_match.status,
                 tournament_match.scheduled_start_time,
                 tournament_match.fusion_room_name,
+                t.sets,
+                t.entry_fee,
                 CASE
                     WHEN player1.playfab_id = $2 THEN player2.playfab_id
                     ELSE player1.playfab_id
@@ -183,6 +185,8 @@ class TournamentService:
                 ON player1.id = tournament_match.player1_id
             JOIN tournament_participants AS player2
                 ON player2.id = tournament_match.player2_id
+            JOIN tournaments AS t
+                ON t.id = tournament_match.tournament_id
             WHERE tournament_match.tournament_id = $1
               AND (player1.playfab_id = $2 OR player2.playfab_id = $2)
               AND tournament_match.status IN ('pending', 'in_progress')

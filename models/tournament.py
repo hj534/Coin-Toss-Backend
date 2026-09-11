@@ -77,10 +77,12 @@ class TournamentMatchOut(BaseModel):
     round_number: int
     match_number: int
     status: str
-    scheduled_start_time: datetime | None
-    fusion_room_name: str | None
+    scheduled_start_time: datetime
+    fusion_room_name: str
+    sets: int
+    entry_fee: int
     opponent_playfab_id: str
-    opponent_display_name: str | None
+    opponent_display_name: str
     
 class ParticipantListOut(BaseModel):
     tournament_id: int
