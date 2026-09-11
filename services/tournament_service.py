@@ -505,3 +505,22 @@ class TournamentService:
             playfab_id,
         )
         return TournamentOut(**dict(row)) if row else None
+    
+    
+    async def get_leaderboard(self, limit: int = 50) -> list[LeaderboardEntryOut]:
+        pool = get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT
+                tp.playfab_id,
+                MAX(tp.display_name) AS display_name,
+                COUNT(*) AS wins
+            FROM tournament_champions tc
+            JOIN tournament_participants tp ON tp.id = tc.participant_id
+            GROUP BY tp.playfab_id
+            ORDER BY wins DESC
+            LIMIT $1
+            """,
+            limit,
+        )
+        return [LeaderboardEntryOut(**dict(r)) for r in rows]
