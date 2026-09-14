@@ -9,6 +9,8 @@ class TournamentCreate(BaseModel):
     type: str
     sets: int
     entry_fee: int
+    currency_type: str
+    round_time_seconds: int
 
     @field_validator("max_players")
     @classmethod
@@ -40,6 +42,22 @@ class TournamentCreate(BaseModel):
             raise ValueError("entry_fee cannot be negative")
         return value
 
+    @field_validator("currency_type")
+    @classmethod
+    def validate_currency_type(cls, value: str) -> str:
+        allowed = {"coins", "cash"}
+        if value not in allowed:
+            raise ValueError(f"currency_type must be one of {sorted(allowed)}")
+        return value
+
+    @field_validator("round_time_seconds")
+    @classmethod
+    def validate_round_time(cls, value: int) -> int:
+        allowed = {30, 60, 90, 120}
+        if value not in allowed:
+            raise ValueError(f"round_time_seconds must be one of {sorted(allowed)}")
+        return value
+
 
 class TournamentOut(BaseModel):
     id: int
@@ -48,6 +66,9 @@ class TournamentOut(BaseModel):
     type: str
     sets: int
     entry_fee: int
+    currency_type: str
+    round_time_seconds: int
+    prize: int
     max_players: int
     current_players: int
     start_time: datetime

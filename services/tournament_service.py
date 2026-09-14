@@ -27,7 +27,13 @@ TOURNAMENT_DURATIONS = {
 class TournamentService:
 
 
-    
+    async def get_tournament_by_id(self, tournament_id: int) -> TournamentOut | None:
+        pool = get_pool()
+        row = await pool.fetchrow(
+            "SELECT * FROM tournaments WHERE id = $1",
+            tournament_id,
+        )
+        return TournamentOut(**dict(row)) if row else None
     
     async def get_all_tournaments(self) -> list[TournamentOut]:
         print("Fetching all tournaments from the database")
@@ -49,15 +55,17 @@ class TournamentService:
         )
 
         if existing > 0:
-            raise ValueError(
-                f"An active '{payload.type}' tournament already exists."
-            )
+            raise ValueError(f"An active '{payload.type}' tournament already exists.")
 
         end_time = payload.start_time + TOURNAMENT_DURATIONS[payload.type]
+        prize = payload.entry_fee * 2
+
         row = await pool.fetchrow(
             """
-            INSERT INTO tournaments (name, start_time, end_time, max_players, type, sets, entry_fee)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO tournaments
+                (name, start_time, end_time, max_players, type, sets,
+                 entry_fee, currency_type, round_time_seconds, prize)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
             """,
             payload.name,
@@ -67,6 +75,9 @@ class TournamentService:
             payload.type,
             payload.sets,
             payload.entry_fee,
+            payload.currency_type,
+            payload.round_time_seconds,
+            prize,
         )
         return TournamentOut(**dict(row))
 

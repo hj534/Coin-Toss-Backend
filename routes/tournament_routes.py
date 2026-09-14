@@ -80,3 +80,10 @@ async def get_my_active_tournament(playfab_id: str):
 @router.get("/get_leaderboard/", response_model=list[LeaderboardEntryOut])
 async def get_leaderboard(limit: int = 50):
     return await service.get_leaderboard(limit)
+
+@router.get("/get_tournament/{tournament_id}/", response_model=TournamentOut)
+async def get_tournament_by_id(tournament_id: int):
+    tournament = await service.get_tournament_by_id(tournament_id)
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Tournament not found")
+    return tournament
