@@ -14,6 +14,7 @@ from models.tournament import (
     MatchResultSubmit,
     BracketMatchOut,
     LeaderboardEntryOut,
+    MatchResultResponse,
 )
 from datetime import timedelta
 
@@ -286,10 +287,11 @@ class TournamentService:
         )
 
 
-    async def submit_match_result(self, payload: MatchResultSubmit):
+    async def submit_match_result(self, payload: MatchResultSubmit) -> MatchResultResponse:
         pool = get_pool()
         round_finished_data = None
         tournament_finished_data = None
+        tournament_info = None
 
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -344,7 +346,6 @@ class TournamentService:
                     loser_id,
                 )
 
-                # kitne matches hain is round mein total
                 matches_in_round = await conn.fetchval(
                     """
                     SELECT COUNT(*) FROM tournament_matches
@@ -355,7 +356,6 @@ class TournamentService:
                 )
 
                 if matches_in_round == 1:
-                    # ye final match tha - champion mil gaya
                     await conn.execute(
                         "UPDATE tournaments SET status = 'completed' WHERE id = $1",
                         match["tournament_id"],
@@ -369,12 +369,15 @@ class TournamentService:
                         "SELECT playfab_id FROM tournament_participants WHERE id = $1",
                         winner_id,
                     )
+                    tournament_info = await conn.fetchrow(
+                        "SELECT prize, currency_type FROM tournaments WHERE id = $1",
+                        match["tournament_id"],
+                    )
                     tournament_finished_data = (
                         match["tournament_id"],
                         [champ["playfab_id"]],
                     )
                 else:
-                    # apna 'pair partner' match dhoondo (jo mil kar agla round banayega)
                     partner_match_number = (
                         match["match_number"] + 1
                         if match["match_number"] % 2 == 1
@@ -451,10 +454,16 @@ class TournamentService:
 
         if tournament_finished_data:
             tournament_id, champion_playfab_ids = tournament_finished_data
-            for pid in champion_playfab_ids:
-                await manager.send_event(pid, f"{TOURNAMENT_COMPLETED_EVENT}:{tournament_id}")
-                
-                      
+            return MatchResultResponse(
+                tournament_completed=True,
+                winner_playfab_ids=champion_playfab_ids,
+                prize=tournament_info["prize"],
+                currency_type=tournament_info["currency_type"],
+            )
+
+        return MatchResultResponse(tournament_completed=False)
+
+                  
     async def _get_tournaments_by_type(self, tournament_type: str) -> list[TournamentOut]:
         pool = get_pool()
         rows = await pool.fetch(

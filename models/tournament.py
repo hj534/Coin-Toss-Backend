@@ -126,3 +126,10 @@ class LeaderboardEntryOut(BaseModel):
     playfab_id: str
     display_name: str
     wins: int
+    
+    
+class MatchResultResponse(BaseModel):
+    tournament_completed: bool
+    winner_playfab_ids: list[str] = []
+    prize: int = 0
+    currency_type: str | None = None

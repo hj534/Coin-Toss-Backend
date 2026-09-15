@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from models.tournament import TournamentCreate, TournamentOut, ParticipantRegister, ParticipantOut, TournamentMatchOut , BracketMatchOut , LeaderboardEntryOut
+from models.tournament import TournamentCreate, TournamentOut, ParticipantRegister, ParticipantOut, TournamentMatchOut , BracketMatchOut , LeaderboardEntryOut , MatchResultResponse
 from models.tournament import MatchResultSubmit
 from services.tournament_service import TournamentService
 
@@ -42,10 +42,6 @@ async def get_my_tournament_match(tournament_id: int, playfab_id: str):
         )
     return match
 
-@router.post("/submit_match_result/")
-async def submit_match_result(payload: MatchResultSubmit):
-    return await service.submit_match_result(payload)
-
 
 
 @router.get("/get_free_tournaments/", response_model=list[TournamentOut])
@@ -87,3 +83,11 @@ async def get_tournament_by_id(tournament_id: int):
     if not tournament:
         raise HTTPException(status_code=404, detail="Tournament not found")
     return tournament
+
+
+@router.post("/submit_match_result/", response_model=MatchResultResponse)
+async def submit_match_result(payload: MatchResultSubmit):
+    try:
+        return await service.submit_match_result(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
