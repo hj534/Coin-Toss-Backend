@@ -75,22 +75,20 @@ class TournamentOut(BaseModel):
     end_time: datetime
     created_at: datetime
 
- 
 class ParticipantRegister(BaseModel):
     tournament_id: int
     playfab_id: str
-    display_name: str | None = None
-
+    display_name: str
+    email: str | None = None
 
 class ParticipantOut(BaseModel):
     id: int
     tournament_id: int
     playfab_id: str
-    display_name: str | None
+    display_name: str
+    email: str | None = None
     registered_at: datetime
     eliminated: bool
-    final_position: int | None
-
 
 class TournamentMatchOut(BaseModel):
     id: int

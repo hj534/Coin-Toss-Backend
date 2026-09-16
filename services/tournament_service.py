@@ -19,6 +19,7 @@ from models.tournament import (
 )
 from datetime import timedelta
 
+from services.email_service import send_tournament_winner_email
 
 TOURNAMENT_DURATIONS = {
     "free": timedelta(hours=3),
@@ -129,13 +130,14 @@ class TournamentService:
                 row = await conn.fetchrow(
                     """
                     INSERT INTO tournament_participants
-                        (tournament_id, playfab_id, display_name)
-                    VALUES ($1, $2, $3)
+                        (tournament_id, playfab_id, display_name, email)
+                    VALUES ($1, $2, $3, $4)
                     RETURNING *
                     """,
                     payload.tournament_id,
                     payload.playfab_id,
                     payload.display_name,
+                    payload.email,
                 )
 
                 await conn.execute(
@@ -293,6 +295,7 @@ class TournamentService:
         round_finished_data = None
         tournament_finished_data = None
         tournament_info = None
+        champ_email = None
 
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -357,6 +360,7 @@ class TournamentService:
                 )
 
                 if matches_in_round == 1:
+                    # ye final match tha - champion mil gaya
                     await conn.execute(
                         "UPDATE tournaments SET status = 'completed' WHERE id = $1",
                         match["tournament_id"],
@@ -370,10 +374,17 @@ class TournamentService:
                         "SELECT playfab_id FROM tournament_participants WHERE id = $1",
                         winner_id,
                     )
+
+                    # naya hissa - email aur tournament details fetch karo
                     tournament_info = await conn.fetchrow(
-                        "SELECT prize, currency_type FROM tournaments WHERE id = $1",
+                        "SELECT name, prize, currency_type FROM tournaments WHERE id = $1",
                         match["tournament_id"],
                     )
+                    champ_email = await conn.fetchrow(
+                        "SELECT email FROM tournament_participants WHERE id = $1",
+                        winner_id,
+                    )
+
                     tournament_finished_data = (
                         match["tournament_id"],
                         [champ["playfab_id"]],
@@ -448,6 +459,7 @@ class TournamentService:
                                 [p["playfab_id"] for p in participants],
                             )
 
+        # transaction ke bahar - notifications
         if round_finished_data:
             tournament_id, playfab_ids = round_finished_data
             for pid in playfab_ids:
@@ -455,6 +467,19 @@ class TournamentService:
 
         if tournament_finished_data:
             tournament_id, champion_playfab_ids = tournament_finished_data
+
+            # naya hissa - email bhejna
+            if champ_email and champ_email["email"]:
+                send_tournament_winner_email(
+                    champ_email["email"],
+                    tournament_info["name"],
+                    tournament_info["prize"],
+                    tournament_info["currency_type"],
+                )
+
+            for pid in champion_playfab_ids:
+                await manager.send_event(pid, f"{TOURNAMENT_COMPLETED_EVENT}:{tournament_id}")
+
             return MatchResultResponse(
                 tournament_completed=True,
                 winner_playfab_ids=champion_playfab_ids,
@@ -462,9 +487,7 @@ class TournamentService:
                 currency_type=tournament_info["currency_type"],
             )
 
-        return MatchResultResponse(tournament_completed=False)
-
-                  
+        return MatchResultResponse(tournament_completed=False)            
     async def _get_tournaments_by_type(self, tournament_type: str) -> list[TournamentOut]:
         pool = get_pool()
         rows = await pool.fetch(
