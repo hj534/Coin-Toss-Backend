@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from models.tournament import TournamentCreate, TournamentOut, ParticipantRegister, ParticipantOut, TournamentMatchOut , BracketMatchOut , LeaderboardEntryOut , MatchResultResponse
+from models.tournament import TournamentCreate, TournamentOut, ParticipantRegister, ParticipantOut, TournamentMatchOut , BracketMatchOut , LeaderboardEntryOut , MatchResultResponse , ParticipantResultOut
 from models.tournament import MatchResultSubmit
 from services.tournament_service import TournamentService
 
@@ -91,3 +91,8 @@ async def submit_match_result(payload: MatchResultSubmit):
         return await service.submit_match_result(payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+    
+@router.get("/get_tournament_results/{tournament_id}/", response_model=list[ParticipantResultOut])
+async def get_tournament_results(tournament_id: int):
+    return await service.get_tournament_results(tournament_id)

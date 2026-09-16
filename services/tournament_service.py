@@ -15,6 +15,7 @@ from models.tournament import (
     BracketMatchOut,
     LeaderboardEntryOut,
     MatchResultResponse,
+    ParticipantResultOut,
 )
 from datetime import timedelta
 
@@ -545,3 +546,23 @@ class TournamentService:
             limit,
         )
         return [LeaderboardEntryOut(**dict(r)) for r in rows]
+    
+    async def get_tournament_results(self, tournament_id: int) -> list[ParticipantResultOut]:
+        pool = get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT
+                tp.playfab_id,
+                tp.display_name,
+                tp.eliminated,
+                EXISTS (
+                    SELECT 1 FROM tournament_champions tc
+                    WHERE tc.tournament_id = $1 AND tc.participant_id = tp.id
+                ) AS is_champion
+            FROM tournament_participants tp
+            WHERE tp.tournament_id = $1
+            ORDER BY is_champion DESC, tp.eliminated ASC, tp.display_name
+            """,
+            tournament_id,
+        )
+        return [ParticipantResultOut(**dict(r)) for r in rows]

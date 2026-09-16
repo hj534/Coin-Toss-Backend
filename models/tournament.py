@@ -133,3 +133,9 @@ class MatchResultResponse(BaseModel):
     winner_playfab_ids: list[str] = []
     prize: int = 0
     currency_type: str | None = None
+    
+class ParticipantResultOut(BaseModel):
+    playfab_id: str
+    display_name: str
+    eliminated: bool
+    is_champion: bool
