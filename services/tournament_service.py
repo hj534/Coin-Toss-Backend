@@ -17,7 +17,7 @@ from models.tournament import (
     MatchResultResponse,
     ParticipantResultOut,
 )
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from services.email_service import send_tournament_winner_email
 
@@ -213,7 +213,52 @@ class TournamentService:
             playfab_id,
         )
 
-        return TournamentMatchOut(**dict(row)) if row else None
+        if row:
+            return TournamentMatchOut(**dict(row))
+
+        waiting = await pool.fetchrow(
+            """
+            SELECT
+                t.id AS tournament_id,
+                t.status AS tournament_status,
+                t.start_time,
+                t.sets,
+                t.entry_fee
+            FROM tournaments AS t
+            JOIN tournament_participants AS participant
+                ON participant.tournament_id = t.id
+            WHERE t.id = $1
+              AND participant.playfab_id = $2
+              AND t.status = 'registration'
+            LIMIT 1
+            """,
+            tournament_id,
+            playfab_id,
+        )
+
+        if not waiting:
+            return None
+
+        start_time = waiting["start_time"]
+        if start_time.tzinfo is None:
+            start_time = start_time.replace(tzinfo=timezone.utc)
+
+        now = datetime.now(timezone.utc)
+        seconds_until_start = max(0, int((start_time - now).total_seconds()))
+        status = (
+            "waiting_for_tournament_start"
+            if seconds_until_start > 0
+            else "waiting_for_players"
+        )
+
+        return TournamentMatchOut(
+            tournament_id=waiting["tournament_id"],
+            status=status,
+            sets=waiting["sets"],
+            entry_fee=waiting["entry_fee"],
+            tournament_start_time=start_time,
+            seconds_until_start=seconds_until_start,
+        )
 
     async def _generate_round_1(self, conn, tournament_id: int):
         participants = await conn.fetch(

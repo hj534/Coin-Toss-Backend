@@ -91,17 +91,19 @@ class ParticipantOut(BaseModel):
     eliminated: bool
 
 class TournamentMatchOut(BaseModel):
-    id: int
+    id: int | None = None
     tournament_id: int
-    round_number: int
-    match_number: int
+    round_number: int | None = None
+    match_number: int | None = None
     status: str
-    scheduled_start_time: datetime
-    fusion_room_name: str
+    scheduled_start_time: datetime | None = None
+    fusion_room_name: str | None = None
     sets: int
     entry_fee: int
-    opponent_playfab_id: str
-    opponent_display_name: str
+    opponent_playfab_id: str | None = None
+    opponent_display_name: str | None = None
+    tournament_start_time: datetime | None = None
+    seconds_until_start: int | None = None
     
 class ParticipantListOut(BaseModel):
     tournament_id: int
