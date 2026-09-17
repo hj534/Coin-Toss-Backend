@@ -1,14 +1,87 @@
 import asyncio
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
 from services.db import get_pool
 from services.websocket_instance import manager
-from config.events import TOURNAMENT_STARTED_EVENT
 from services.tournament_service import TournamentService
 from config.events import TOURNAMENT_STARTED_EVENT, TOURNAMENT_COMPLETED_EVENT
 
 POLL_INTERVAL_SECONDS = 15
+SCHEDULER_TIMEZONE = ZoneInfo("Asia/Karachi")
+WEEKLY_TOURNAMENT_NAME = "Best of the Best Coin Flipping Champs Weekly Mini Main Event"
+WEEKLY_TOURNAMENT_START_DAY = 5  # Saturday, where Monday is 0.
+WEEKLY_TOURNAMENT_START_TIME = time(hour=20, minute=0)
+WEEKLY_TOURNAMENT_MAX_PLAYERS = 16
+WEEKLY_TOURNAMENT_ENTRY_FEE = 10000
+WEEKLY_TOURNAMENT_SETS = 5
+WEEKLY_TOURNAMENT_CURRENCY_TYPE = "cash"
+WEEKLY_TOURNAMENT_ROUND_TIME_SECONDS = 60
 
 service = TournamentService()
 _task: asyncio.Task | None = None
+
+
+def _current_or_next_weekly_window():
+    now = datetime.now(SCHEDULER_TIMEZONE)
+    days_until_start = (WEEKLY_TOURNAMENT_START_DAY - now.weekday()) % 7
+    start_at = now.replace(
+        hour=WEEKLY_TOURNAMENT_START_TIME.hour,
+        minute=WEEKLY_TOURNAMENT_START_TIME.minute,
+        second=0,
+        microsecond=0,
+    ) + timedelta(days=days_until_start)
+
+    if start_at <= now:
+        start_at += timedelta(days=7)
+
+    return start_at, start_at + timedelta(days=7)
+
+
+async def _ensure_weekly_tournament():
+    pool = get_pool()
+    start_at, end_at = _current_or_next_weekly_window()
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            existing = await conn.fetchrow(
+                """
+                SELECT id, start_time
+                FROM tournaments
+                WHERE type = 'weekly'
+                  AND status NOT IN ('completed', 'cancelled')
+                ORDER BY start_time DESC
+                LIMIT 1
+                FOR UPDATE
+                """
+            )
+
+            if existing:
+                return
+
+            row = await conn.fetchrow(
+                """
+                INSERT INTO tournaments
+                    (name, start_time, end_time, max_players, type, sets,
+                     entry_fee, currency_type, round_time_seconds, prize)
+                VALUES ($1, $2, $3, $4, 'weekly', $5, $6, $7, $8, $9)
+                RETURNING id
+                """,
+                WEEKLY_TOURNAMENT_NAME,
+                start_at,
+                end_at,
+                WEEKLY_TOURNAMENT_MAX_PLAYERS,
+                WEEKLY_TOURNAMENT_SETS,
+                WEEKLY_TOURNAMENT_ENTRY_FEE,
+                WEEKLY_TOURNAMENT_CURRENCY_TYPE,
+                WEEKLY_TOURNAMENT_ROUND_TIME_SECONDS,
+                WEEKLY_TOURNAMENT_ENTRY_FEE * 2,
+            )
+
+            print(
+                "Created weekly tournament "
+                f"{row['id']} from {start_at.isoformat()} to {end_at.isoformat()}"
+            )
 
 
 async def _check_due_tournaments():
@@ -63,8 +136,9 @@ async def _loop():
     while True:
         try:
             print("Running scheduler tick")
-            await _check_due_tournaments()
             await _check_expired_tournaments()
+            await _ensure_weekly_tournament()
+            await _check_due_tournaments()
         except Exception as e:
             print(f"Scheduler tick failed: {e}")
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
