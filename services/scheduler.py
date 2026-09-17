@@ -1,6 +1,5 @@
 import asyncio
-from datetime import datetime, time, timedelta
-from zoneinfo import ZoneInfo
+from datetime import datetime, time, timedelta, timezone
 
 from services.db import get_pool
 from services.websocket_instance import manager
@@ -8,7 +7,7 @@ from services.tournament_service import TournamentService
 from config.events import TOURNAMENT_STARTED_EVENT, TOURNAMENT_COMPLETED_EVENT
 
 POLL_INTERVAL_SECONDS = 15
-SCHEDULER_TIMEZONE = ZoneInfo("Asia/Karachi")
+SCHEDULER_TIMEZONE = timezone.utc
 WEEKLY_TOURNAMENT_NAME = "Best of the Best Coin Flipping Champs Weekly Mini Main Event"
 WEEKLY_TOURNAMENT_START_DAY = 5  # Saturday, where Monday is 0.
 WEEKLY_TOURNAMENT_START_TIME = time(hour=20, minute=0)
