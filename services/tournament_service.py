@@ -1,6 +1,7 @@
 from services.db import get_pool
 from services.websocket_instance import manager
 from config.events import (
+    CASH_UPDATED_EVENT,
     TOURNAMENT_UPDATED_EVENT,
     TOURNAMENT_ROUND_STARTED_EVENT,
     TOURNAMENT_COMPLETED_EVENT,
@@ -20,6 +21,7 @@ from models.tournament import (
 from datetime import datetime, timedelta, timezone
 
 from services.email_service import send_tournament_winner_email
+from services.playfab_service import update_playfab_cash
 
 TOURNAMENT_DURATIONS = {
     "free": timedelta(hours=3),
@@ -27,6 +29,9 @@ TOURNAMENT_DURATIONS = {
     "weekly": timedelta(days=7),
     "monthly": timedelta(days=30),
 }
+FREE_TOURNAMENT_RANK_REWARDS = [500, 400, 300, 200, 100, 50, 25, 20, 10, 5]
+
+
 class TournamentService:
 
 
@@ -46,19 +51,6 @@ class TournamentService:
 
     async def create_tournament(self, payload: TournamentCreate) -> TournamentOut:
         pool = get_pool()
-
-        existing = await pool.fetchval(
-            """
-            SELECT COUNT(*)
-            FROM tournaments
-            WHERE type = $1
-              AND status NOT IN ('completed', 'cancelled')
-            """,
-            payload.type,
-        )
-
-        if existing > 0:
-            raise ValueError(f"An active '{payload.type}' tournament already exists.")
 
         end_time = payload.start_time + TOURNAMENT_DURATIONS[payload.type]
         prize = payload.entry_fee * 2
@@ -334,6 +326,77 @@ class TournamentService:
             tournament_id,
         )
 
+    async def _get_free_tournament_reward_recipients(
+        self,
+        conn,
+        tournament_id: int,
+    ) -> list[tuple[str, int, int]]:
+        tournament_type = await conn.fetchval(
+            "SELECT type FROM tournaments WHERE id = $1",
+            tournament_id,
+        )
+
+        if tournament_type != "free":
+            return []
+
+        rows = await conn.fetch(
+            """
+            WITH ranked_players AS (
+                SELECT
+                    participant.id,
+                    participant.playfab_id,
+                    participant.registered_at,
+                    participant.eliminated,
+                    COUNT(match.id) AS wins,
+                    EXISTS (
+                        SELECT 1
+                        FROM tournament_champions champion
+                        WHERE champion.tournament_id = participant.tournament_id
+                          AND champion.participant_id = participant.id
+                    ) AS is_champion
+                FROM tournament_participants participant
+                LEFT JOIN tournament_matches match
+                    ON match.tournament_id = participant.tournament_id
+                   AND match.winner_id = participant.id
+                WHERE participant.tournament_id = $1
+                GROUP BY
+                    participant.id,
+                    participant.playfab_id,
+                    participant.registered_at,
+                    participant.eliminated
+            )
+            SELECT playfab_id, wins
+            FROM ranked_players
+            ORDER BY is_champion DESC, wins DESC, eliminated ASC, registered_at ASC, id ASC
+            LIMIT $2
+            """,
+            tournament_id,
+            len(FREE_TOURNAMENT_RANK_REWARDS),
+        )
+
+        return [
+            (row["playfab_id"], FREE_TOURNAMENT_RANK_REWARDS[index], index + 1)
+            for index, row in enumerate(rows)
+        ]
+
+    async def _award_free_tournament_rewards(
+        self,
+        rewards: list[tuple[str, int, int]],
+    ):
+        for playfab_id, reward, rank in rewards:
+            success = update_playfab_cash(playfab_id, reward)
+            if success:
+                await manager.send_event(playfab_id, CASH_UPDATED_EVENT)
+                print(
+                    f"Free tournament rank {rank} reward paid: "
+                    f"{reward} cash to {playfab_id}"
+                )
+            else:
+                print(
+                    f"Failed to pay free tournament rank {rank} reward "
+                    f"({reward} cash) to {playfab_id}"
+                )
+
 
     async def submit_match_result(self, payload: MatchResultSubmit) -> MatchResultResponse:
         pool = get_pool()
@@ -341,6 +404,7 @@ class TournamentService:
         tournament_finished_data = None
         tournament_info = None
         champ_email = None
+        free_tournament_rewards: list[tuple[str, int, int]] = []
 
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -428,6 +492,10 @@ class TournamentService:
                     champ_email = await conn.fetchrow(
                         "SELECT email FROM tournament_participants WHERE id = $1",
                         winner_id,
+                    )
+                    free_tournament_rewards = await self._get_free_tournament_reward_recipients(
+                        conn,
+                        match["tournament_id"],
                     )
 
                     tournament_finished_data = (
@@ -521,6 +589,9 @@ class TournamentService:
                     tournament_info["prize"],
                     tournament_info["currency_type"],
                 )
+
+            if free_tournament_rewards:
+                await self._award_free_tournament_rewards(free_tournament_rewards)
 
             for pid in champion_playfab_ids:
                 await manager.send_event(pid, f"{TOURNAMENT_COMPLETED_EVENT}:{tournament_id}")

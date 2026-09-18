@@ -1,4 +1,5 @@
 import asyncio
+import random
 from datetime import datetime, time, timedelta, timezone
 
 from services.db import get_pool
@@ -16,6 +17,33 @@ WEEKLY_TOURNAMENT_ENTRY_FEE = 10000
 WEEKLY_TOURNAMENT_SETS = 5
 WEEKLY_TOURNAMENT_CURRENCY_TYPE = "cash"
 WEEKLY_TOURNAMENT_ROUND_TIME_SECONDS = 60
+DAILY_TOURNAMENT_MAX_PLAYERS = 16
+DAILY_TOURNAMENT_SETS = 3
+DAILY_TOURNAMENT_CURRENCY_TYPE = "cash"
+DAILY_TOURNAMENT_ROUND_TIME_SECONDS = 60
+DAILY_TOURNAMENT_HOURS = [
+    8, 9, 10, 11, 12, 13, 14, 15,
+    16, 17, 18, 19, 20, 21, 22, 23,
+    0, 1, 2, 3, 4, 5, 6, 7,
+]
+DAILY_TOURNAMENT_FEES = [0, 1000, 2000, 3000]
+FREE_TOURNAMENT_NAMES = [
+    "Lucky Flip Free Cup",
+    "Golden Toss Free Sprint",
+    "Coin Clash Free Arena",
+    "Heads or Tails Free Rush",
+    "Flip Frenzy Free Cup",
+    "Zero Entry Coin Battle",
+    "Daily Free Toss Showdown",
+    "Cash Spark Free Challenge",
+]
+FREE_TOURNAMENT_HOURS = [0, 3, 6, 9, 12, 15, 18, 21]
+FREE_TOURNAMENT_MAX_PLAYER_OPTIONS = [4, 8]
+FREE_TOURNAMENT_SETS = 3
+FREE_TOURNAMENT_ENTRY_FEE = 0
+FREE_TOURNAMENT_PRIZE = 500
+FREE_TOURNAMENT_CURRENCY_TYPE = "cash"
+FREE_TOURNAMENT_ROUND_TIME_SECONDS = 60
 
 service = TournamentService()
 _task: asyncio.Task | None = None
@@ -35,6 +63,26 @@ def _current_or_next_weekly_window():
         start_at += timedelta(days=7)
 
     return start_at, start_at + timedelta(days=7)
+
+
+def _current_or_next_daily_window(hour: int):
+    now = datetime.now(SCHEDULER_TIMEZONE)
+    start_at = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+
+    if start_at <= now:
+        start_at += timedelta(days=1)
+
+    return start_at, start_at + timedelta(days=1)
+
+
+def _current_or_next_free_window(hour: int):
+    now = datetime.now(SCHEDULER_TIMEZONE)
+    start_at = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+
+    if start_at <= now:
+        start_at += timedelta(days=1)
+
+    return start_at, start_at + timedelta(hours=3)
 
 
 async def _ensure_weekly_tournament():
@@ -81,6 +129,112 @@ async def _ensure_weekly_tournament():
                 "Created weekly tournament "
                 f"{row['id']} from {start_at.isoformat()} to {end_at.isoformat()}"
             )
+
+
+async def _ensure_daily_tournaments():
+    pool = get_pool()
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            for index, hour in enumerate(DAILY_TOURNAMENT_HOURS, start=1):
+                name = f"Best of the Best Coin Flipping Champs {index}"
+                entry_fee = DAILY_TOURNAMENT_FEES[(index - 1) % len(DAILY_TOURNAMENT_FEES)]
+                start_at, end_at = _current_or_next_daily_window(hour)
+
+                existing = await conn.fetchrow(
+                    """
+                    SELECT id
+                    FROM tournaments
+                    WHERE name = $1
+                      AND type = 'daily'
+                      AND start_time = $2
+                    LIMIT 1
+                    FOR UPDATE
+                    """,
+                    name,
+                    start_at,
+                )
+
+                if existing:
+                    continue
+
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO tournaments
+                        (name, start_time, end_time, max_players, type, sets,
+                         entry_fee, currency_type, round_time_seconds, prize)
+                    VALUES ($1, $2, $3, $4, 'daily', $5, $6, $7, $8, $9)
+                    RETURNING id
+                    """,
+                    name,
+                    start_at,
+                    end_at,
+                    DAILY_TOURNAMENT_MAX_PLAYERS,
+                    DAILY_TOURNAMENT_SETS,
+                    entry_fee,
+                    DAILY_TOURNAMENT_CURRENCY_TYPE,
+                    DAILY_TOURNAMENT_ROUND_TIME_SECONDS,
+                    entry_fee * 2,
+                )
+
+                print(
+                    "Created daily tournament "
+                    f"{row['id']} ({name}) from {start_at.isoformat()} "
+                    f"to {end_at.isoformat()}"
+                )
+
+
+async def _ensure_free_tournaments():
+    pool = get_pool()
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            for index, hour in enumerate(FREE_TOURNAMENT_HOURS):
+                name = FREE_TOURNAMENT_NAMES[index]
+                start_at, end_at = _current_or_next_free_window(hour)
+
+                existing = await conn.fetchrow(
+                    """
+                    SELECT id
+                    FROM tournaments
+                    WHERE name = $1
+                      AND type = 'free'
+                      AND start_time = $2
+                    LIMIT 1
+                    FOR UPDATE
+                    """,
+                    name,
+                    start_at,
+                )
+
+                if existing:
+                    continue
+
+                max_players = random.choice(FREE_TOURNAMENT_MAX_PLAYER_OPTIONS)
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO tournaments
+                        (name, start_time, end_time, max_players, type, sets,
+                         entry_fee, currency_type, round_time_seconds, prize)
+                    VALUES ($1, $2, $3, $4, 'free', $5, $6, $7, $8, $9)
+                    RETURNING id
+                    """,
+                    name,
+                    start_at,
+                    end_at,
+                    max_players,
+                    FREE_TOURNAMENT_SETS,
+                    FREE_TOURNAMENT_ENTRY_FEE,
+                    FREE_TOURNAMENT_CURRENCY_TYPE,
+                    FREE_TOURNAMENT_ROUND_TIME_SECONDS,
+                    FREE_TOURNAMENT_PRIZE,
+                )
+
+                print(
+                    "Created free tournament "
+                    f"{row['id']} ({name}) from {start_at.isoformat()} "
+                    f"to {end_at.isoformat()} with max_players={max_players}"
+                )
 
 
 async def _check_due_tournaments():
@@ -136,6 +290,8 @@ async def _loop():
         try:
             print("Running scheduler tick")
             await _check_expired_tournaments()
+            await _ensure_free_tournaments()
+            await _ensure_daily_tournaments()
             await _ensure_weekly_tournament()
             await _check_due_tournaments()
         except Exception as e:
@@ -155,6 +311,7 @@ def stop_scheduler():
 
 async def _check_expired_tournaments():
     pool = get_pool()
+    completed_tournament_rewards: list[list[tuple[str, int, int]]] = []
 
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -221,6 +378,13 @@ async def _check_expired_tournaments():
                         leader["participant_id"],
                     )
 
+                free_tournament_rewards = await service._get_free_tournament_reward_recipients(
+                    conn,
+                    tournament_id,
+                )
+                if free_tournament_rewards:
+                    completed_tournament_rewards.append(free_tournament_rewards)
+
                 await conn.execute(
                     "UPDATE tournaments SET status = 'completed' WHERE id = $1",
                     tournament_id,
@@ -236,3 +400,6 @@ async def _check_expired_tournaments():
                         leader["playfab_id"],
                         f"{TOURNAMENT_COMPLETED_EVENT}:{tournament_id}",
                     )
+
+    for rewards in completed_tournament_rewards:
+        await service._award_free_tournament_rewards(rewards)
