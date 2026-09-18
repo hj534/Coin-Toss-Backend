@@ -101,6 +101,31 @@ def update_playfab_cash(playfab_id: str, cash_to_add: int):
     return update_response.ok
 
 
+def update_playfab_points(playfab_id: str, points_to_add: int):
+    get_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/GetUserData"
+    get_response = requests.post(get_data_url, headers={
+        "X-SecretKey": PLAYFAB_SECRET_KEY
+    }, json={"PlayFabId": playfab_id})
+
+    current_points = 0
+    try:
+        current_points = int(get_response.json()["data"]["Data"]["Points"]["Value"])
+    except:
+        current_points = 0
+
+    new_points = current_points + points_to_add
+
+    update_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/UpdateUserData"
+    update_response = requests.post(update_data_url, headers={
+        "X-SecretKey": PLAYFAB_SECRET_KEY
+    }, json={
+        "PlayFabId": playfab_id,
+        "Data": {"Points": str(new_points)}
+    })
+
+    return update_response.ok
+
+
 def update_playfab_coins(playfab_id: str, coins_to_add: int):
     get_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/GetUserData"
     headers = {

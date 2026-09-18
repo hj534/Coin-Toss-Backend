@@ -27,6 +27,12 @@ DAILY_TOURNAMENT_HOURS = [
     0, 1, 2, 3, 4, 5, 6, 7,
 ]
 DAILY_TOURNAMENT_FEES = [0, 1000, 2000, 3000]
+DAILY_TOURNAMENT_FIRST_PLACE_PRIZES = {
+    0: 500,
+    1000: 20000,
+    2000: 40000,
+    3000: 100000,
+}
 FREE_TOURNAMENT_NAMES = [
     "Lucky Flip Free Cup",
     "Golden Toss Free Sprint",
@@ -174,7 +180,7 @@ async def _ensure_daily_tournaments():
                     entry_fee,
                     DAILY_TOURNAMENT_CURRENCY_TYPE,
                     DAILY_TOURNAMENT_ROUND_TIME_SECONDS,
-                    entry_fee * 2,
+                    DAILY_TOURNAMENT_FIRST_PLACE_PRIZES[entry_fee],
                 )
 
                 print(
@@ -311,7 +317,7 @@ def stop_scheduler():
 
 async def _check_expired_tournaments():
     pool = get_pool()
-    completed_tournament_rewards: list[list[tuple[str, int, int]]] = []
+    completed_tournament_rewards: list[list[tuple[str, int, int, int]]] = []
 
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -378,12 +384,12 @@ async def _check_expired_tournaments():
                         leader["participant_id"],
                     )
 
-                free_tournament_rewards = await service._get_free_tournament_reward_recipients(
+                tournament_rewards = await service._get_tournament_reward_recipients(
                     conn,
                     tournament_id,
                 )
-                if free_tournament_rewards:
-                    completed_tournament_rewards.append(free_tournament_rewards)
+                if tournament_rewards:
+                    completed_tournament_rewards.append(tournament_rewards)
 
                 await conn.execute(
                     "UPDATE tournaments SET status = 'completed' WHERE id = $1",
@@ -402,4 +408,4 @@ async def _check_expired_tournaments():
                     )
 
     for rewards in completed_tournament_rewards:
-        await service._award_free_tournament_rewards(rewards)
+        await service._award_tournament_rewards(rewards)

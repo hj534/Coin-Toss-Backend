@@ -21,7 +21,7 @@ from models.tournament import (
 from datetime import datetime, timedelta, timezone
 
 from services.email_service import send_tournament_winner_email
-from services.playfab_service import update_playfab_cash
+from services.playfab_service import update_playfab_cash, update_playfab_points
 
 TOURNAMENT_DURATIONS = {
     "free": timedelta(hours=3),
@@ -29,7 +29,56 @@ TOURNAMENT_DURATIONS = {
     "weekly": timedelta(days=7),
     "monthly": timedelta(days=30),
 }
-FREE_TOURNAMENT_RANK_REWARDS = [500, 400, 300, 200, 100, 50, 25, 20, 10, 5]
+TOURNAMENT_RANK_REWARDS = {
+    0: [
+        {"cash": 500, "points": 0},
+        {"cash": 400, "points": 0},
+        {"cash": 300, "points": 0},
+        {"cash": 200, "points": 0},
+        {"cash": 100, "points": 0},
+        {"cash": 50, "points": 0},
+        {"cash": 25, "points": 0},
+        {"cash": 20, "points": 0},
+        {"cash": 10, "points": 0},
+        {"cash": 5, "points": 0},
+    ],
+    1000: [
+        {"cash": 20000, "points": 600},
+        {"cash": 15000, "points": 500},
+        {"cash": 10000, "points": 400},
+        {"cash": 8000, "points": 300},
+        {"cash": 5000, "points": 200},
+        {"cash": 3000, "points": 100},
+        {"cash": 2000, "points": 50},
+        {"cash": 1000, "points": 20},
+        {"cash": 500, "points": 10},
+        {"cash": 300, "points": 5},
+    ],
+    2000: [
+        {"cash": 40000, "points": 1200},
+        {"cash": 30000, "points": 1000},
+        {"cash": 20000, "points": 800},
+        {"cash": 10000, "points": 600},
+        {"cash": 5000, "points": 400},
+        {"cash": 2000, "points": 200},
+        {"cash": 1000, "points": 100},
+        {"cash": 800, "points": 50},
+        {"cash": 400, "points": 20},
+        {"cash": 200, "points": 10},
+    ],
+    3000: [
+        {"cash": 100000, "points": 2400},
+        {"cash": 80000, "points": 2000},
+        {"cash": 50000, "points": 1600},
+        {"cash": 30000, "points": 1200},
+        {"cash": 20000, "points": 800},
+        {"cash": 10000, "points": 400},
+        {"cash": 5000, "points": 200},
+        {"cash": 3000, "points": 100},
+        {"cash": 2000, "points": 50},
+        {"cash": 1000, "points": 25},
+    ],
+}
 
 
 class TournamentService:
@@ -326,17 +375,24 @@ class TournamentService:
             tournament_id,
         )
 
-    async def _get_free_tournament_reward_recipients(
+    async def _get_tournament_reward_recipients(
         self,
         conn,
         tournament_id: int,
-    ) -> list[tuple[str, int, int]]:
-        tournament_type = await conn.fetchval(
-            "SELECT type FROM tournaments WHERE id = $1",
+    ) -> list[tuple[str, int, int, int]]:
+        tournament = await conn.fetchrow(
+            "SELECT type, entry_fee FROM tournaments WHERE id = $1",
             tournament_id,
         )
 
-        if tournament_type != "free":
+        if not tournament:
+            return []
+
+        reward_table = TOURNAMENT_RANK_REWARDS.get(tournament["entry_fee"])
+        if not reward_table:
+            return []
+
+        if tournament["type"] not in {"free", "daily"}:
             return []
 
         rows = await conn.fetch(
@@ -371,30 +427,41 @@ class TournamentService:
             LIMIT $2
             """,
             tournament_id,
-            len(FREE_TOURNAMENT_RANK_REWARDS),
+            len(reward_table),
         )
 
         return [
-            (row["playfab_id"], FREE_TOURNAMENT_RANK_REWARDS[index], index + 1)
+            (
+                row["playfab_id"],
+                reward_table[index]["cash"],
+                reward_table[index]["points"],
+                index + 1,
+            )
             for index, row in enumerate(rows)
         ]
 
-    async def _award_free_tournament_rewards(
+    async def _award_tournament_rewards(
         self,
-        rewards: list[tuple[str, int, int]],
+        rewards: list[tuple[str, int, int, int]],
     ):
-        for playfab_id, reward, rank in rewards:
-            success = update_playfab_cash(playfab_id, reward)
-            if success:
+        for playfab_id, cash_reward, points_reward, rank in rewards:
+            cash_success = update_playfab_cash(playfab_id, cash_reward)
+            points_success = True
+            if points_reward > 0:
+                points_success = update_playfab_points(playfab_id, points_reward)
+
+            if cash_success:
                 await manager.send_event(playfab_id, CASH_UPDATED_EVENT)
+
+            if cash_success and points_success:
                 print(
-                    f"Free tournament rank {rank} reward paid: "
-                    f"{reward} cash to {playfab_id}"
+                    f"Tournament rank {rank} reward paid: "
+                    f"{cash_reward} cash and {points_reward} points to {playfab_id}"
                 )
             else:
                 print(
-                    f"Failed to pay free tournament rank {rank} reward "
-                    f"({reward} cash) to {playfab_id}"
+                    f"Failed to fully pay tournament rank {rank} reward "
+                    f"({cash_reward} cash, {points_reward} points) to {playfab_id}"
                 )
 
 
@@ -404,7 +471,7 @@ class TournamentService:
         tournament_finished_data = None
         tournament_info = None
         champ_email = None
-        free_tournament_rewards: list[tuple[str, int, int]] = []
+        tournament_rewards: list[tuple[str, int, int, int]] = []
 
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -493,7 +560,7 @@ class TournamentService:
                         "SELECT email FROM tournament_participants WHERE id = $1",
                         winner_id,
                     )
-                    free_tournament_rewards = await self._get_free_tournament_reward_recipients(
+                    tournament_rewards = await self._get_tournament_reward_recipients(
                         conn,
                         match["tournament_id"],
                     )
@@ -590,8 +657,8 @@ class TournamentService:
                     tournament_info["currency_type"],
                 )
 
-            if free_tournament_rewards:
-                await self._award_free_tournament_rewards(free_tournament_rewards)
+            if tournament_rewards:
+                await self._award_tournament_rewards(tournament_rewards)
 
             for pid in champion_playfab_ids:
                 await manager.send_event(pid, f"{TOURNAMENT_COMPLETED_EVENT}:{tournament_id}")
