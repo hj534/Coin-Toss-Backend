@@ -387,6 +387,7 @@ async def _loop():
         try:
             print("Running scheduler tick")
             await _check_expired_tournaments()
+            await _cleanup_finished_tournaments()
             await _ensure_free_tournaments()
             await _ensure_daily_tournaments()
             await _ensure_weekly_tournament()
@@ -501,3 +502,41 @@ async def _check_expired_tournaments():
 
     for rewards in completed_tournament_rewards:
         await service._award_tournament_rewards(rewards)
+
+
+async def _cleanup_finished_tournaments():
+    pool = get_pool()
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            finished_ids = await conn.fetch(
+                """
+                SELECT id
+                FROM tournaments
+                WHERE status IN ('completed', 'cancelled')
+                FOR UPDATE
+                """
+            )
+
+            tournament_ids = [row["id"] for row in finished_ids]
+            if not tournament_ids:
+                return
+
+            await conn.execute(
+                "DELETE FROM tournament_champions WHERE tournament_id = ANY($1::int[])",
+                tournament_ids,
+            )
+            await conn.execute(
+                "DELETE FROM tournament_matches WHERE tournament_id = ANY($1::int[])",
+                tournament_ids,
+            )
+            await conn.execute(
+                "DELETE FROM tournament_participants WHERE tournament_id = ANY($1::int[])",
+                tournament_ids,
+            )
+            await conn.execute(
+                "DELETE FROM tournaments WHERE id = ANY($1::int[])",
+                tournament_ids,
+            )
+
+            print(f"Deleted {len(tournament_ids)} completed/cancelled tournament(s).")
