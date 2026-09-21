@@ -23,7 +23,7 @@ class TournamentCreate(BaseModel):
     @field_validator("type")
     @classmethod
     def validate_type(cls, value: str) -> str:
-        allowed_types = {"free", "daily", "weekly", "monthly"}
+        allowed_types = {"free", "daily", "weekly", "monthly", "bimonthly"}
         if value not in allowed_types:
             raise ValueError(f"type must be one of {sorted(allowed_types)}")
         return value
@@ -53,7 +53,7 @@ class TournamentCreate(BaseModel):
     @field_validator("round_time_seconds")
     @classmethod
     def validate_round_time(cls, value: int) -> int:
-        allowed = {30, 60, 90, 120}
+        allowed = {30, 60, 90, 120, 600}
         if value not in allowed:
             raise ValueError(f"round_time_seconds must be one of {sorted(allowed)}")
         return value

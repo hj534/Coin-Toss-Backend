@@ -60,6 +60,10 @@ async def get_weekly_tournaments():
 async def get_monthly_tournaments():
     return await service.get_monthly_tournaments()
 
+@router.get("/get_bimonthly_tournaments/", response_model=list[TournamentOut])
+async def get_bimonthly_tournaments():
+    return await service.get_bimonthly_tournaments()
+
 
 @router.get("/get_tournament_bracket/{tournament_id}/", response_model=list[BracketMatchOut])
 async def get_tournament_bracket(tournament_id: int):

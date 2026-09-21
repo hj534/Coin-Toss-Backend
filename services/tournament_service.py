@@ -695,6 +695,9 @@ class TournamentService:
 
     async def get_monthly_tournaments(self) -> list[TournamentOut]:
         return await self._get_tournaments_by_type("monthly")
+
+    async def get_bimonthly_tournaments(self) -> list[TournamentOut]:
+        return await self._get_tournaments_by_type("bimonthly")
     
     async def get_tournament_bracket(self, tournament_id: int) -> list[BracketMatchOut]:
         pool = get_pool()
