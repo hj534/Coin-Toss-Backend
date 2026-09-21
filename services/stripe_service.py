@@ -16,6 +16,38 @@ import asyncio
 
 stripe.api_key = STRIPE_SECRET_KEY
 
+
+def _looks_like_placeholder_price(price_id):
+    if not price_id:
+        return True
+
+    normalized = price_id.strip()
+    return (
+        not normalized.startswith("price_")
+        or "xxxxx" in normalized.lower()
+        or normalized.startswith("PASTE_")
+    )
+
+
+def _get_active_price_id_for_product(product_id):
+    if not product_id:
+        return None
+
+    prices = stripe.Price.list(
+        product=product_id,
+        active=True,
+        limit=10,
+    )
+
+    for price in prices.data:
+        if price.recurring:
+            return price.id
+
+    if prices.data:
+        return prices.data[0].id
+
+    return None
+
 def currency_pack_checkout_session(data):
     currency_packs = get_currency_packs()
     pack = currency_packs.get(data.pack_id)
@@ -101,11 +133,16 @@ def membership_checkout_session(data):
     if active_membership_id == data.pack_id:
         return None, "This membership is already active"
 
-    stripe_price_id = membership.get("stripe_price_id")
-    if not stripe_price_id:
-        return None, "Stripe price ID is missing for this membership"
-
     try:
+        stripe_price_id = membership.get("stripe_price_id")
+        if _looks_like_placeholder_price(stripe_price_id):
+            stripe_price_id = _get_active_price_id_for_product(
+                membership.get("stripe_product_id")
+            )
+
+        if not stripe_price_id:
+            return None, "Stripe price ID is missing for this membership"
+
         session = stripe.checkout.Session.create(
             line_items=[{
                 "price": stripe_price_id,
