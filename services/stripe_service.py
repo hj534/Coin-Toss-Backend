@@ -1,7 +1,16 @@
 import stripe
 from config.settings import STRIPE_SECRET_KEY, CHECKOUT_SUCCESS_URL, CHECKOUT_CANCEL_URL
 from config.events import CASH_UPDATED_EVENT, COINS_UPDATED_EVENT, COIN_MODEL_UNLOCKED_EVENT
-from services.playfab_service import update_playfab_cash, update_playfab_coins, unlock_coin_model, get_currency_packs, get_models
+from services.playfab_service import (
+    update_playfab_cash,
+    update_playfab_coins,
+    unlock_coin_model,
+    get_currency_packs,
+    get_models,
+    get_memberships,
+    get_active_membership_id,
+    set_active_membership,
+)
 from services.websocket_instance import manager
 import asyncio
 
@@ -80,6 +89,43 @@ def model_checkout_session(data):
     except Exception as e:
         return None, str(e)
 
+
+def membership_checkout_session(data):
+    memberships = get_memberships()
+    membership = memberships.get(data.pack_id)
+
+    if not membership:
+        return None, "Invalid membership ID"
+
+    active_membership_id = get_active_membership_id(data.playfab_id)
+    if active_membership_id == data.pack_id:
+        return None, "This membership is already active"
+
+    stripe_price_id = membership.get("stripe_price_id")
+    if not stripe_price_id:
+        return None, "Stripe price ID is missing for this membership"
+
+    try:
+        session = stripe.checkout.Session.create(
+            line_items=[{
+                "price": stripe_price_id,
+                "quantity": 1,
+            }],
+            metadata={
+                "email": data.email,
+                "membership_id": data.pack_id,
+                "playfab_id": data.playfab_id,
+                "item_type": data.item_type
+            },
+            mode="subscription",
+            success_url=CHECKOUT_SUCCESS_URL,
+            cancel_url=CHECKOUT_CANCEL_URL,
+            customer_email=data.email,
+        )
+        return session.url, None
+    except Exception as e:
+        return None, str(e)
+
 def handle_webhook(event):
 
     if event["type"] != "checkout.session.completed":
@@ -111,6 +157,12 @@ def handle_webhook(event):
             success = unlock_coin_model(playfab_id, model_id)
             if success:
                 asyncio.create_task(manager.send_event(playfab_id, COIN_MODEL_UNLOCKED_EVENT))
+
+    elif item_type == "membership":
+        membership_id = metadata.get("membership_id")
+        playfab_id = metadata.get("playfab_id")
+        if playfab_id and membership_id:
+            set_active_membership(playfab_id, membership_id)
 
     else:
         print("Unhandled Stripe session with unknown purpose.")

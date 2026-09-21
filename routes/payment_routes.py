@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, HTTPException
 from models.checkout import CheckoutRequest
-from services.stripe_service import currency_pack_checkout_session, model_checkout_session, handle_webhook
+from services.stripe_service import currency_pack_checkout_session, model_checkout_session, membership_checkout_session, handle_webhook
 import json
 import stripe
 from config.settings import STRIPE_WEBHOOK_SECRET
@@ -14,6 +14,8 @@ async def checkout(data: CheckoutRequest):
         url, error = currency_pack_checkout_session(data)
     elif item_type == "model":
         url, error = model_checkout_session(data)
+    elif item_type == "membership":
+        url, error = membership_checkout_session(data)
     else:
         raise HTTPException(status_code=400, detail="Invalid item type")
     if error:
