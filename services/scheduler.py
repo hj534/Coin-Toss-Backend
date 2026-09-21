@@ -17,6 +17,13 @@ WEEKLY_TOURNAMENT_ENTRY_FEE = 10000
 WEEKLY_TOURNAMENT_SETS = 5
 WEEKLY_TOURNAMENT_CURRENCY_TYPE = "cash"
 WEEKLY_TOURNAMENT_ROUND_TIME_SECONDS = 60
+MONTHLY_TOURNAMENT_NAME = "Best of the Best Coin Flipping Champs Monthly Main Event"
+MONTHLY_TOURNAMENT_START_TIME = time(hour=13, minute=0)
+MONTHLY_TOURNAMENT_MAX_PLAYERS = 20
+MONTHLY_TOURNAMENT_ENTRY_FEE = 20000
+MONTHLY_TOURNAMENT_SETS = 5
+MONTHLY_TOURNAMENT_CURRENCY_TYPE = "cash"
+MONTHLY_TOURNAMENT_ROUND_TIME_SECONDS = 60
 DAILY_TOURNAMENT_MAX_PLAYERS = 16
 DAILY_TOURNAMENT_SETS = 3
 DAILY_TOURNAMENT_CURRENCY_TYPE = "cash"
@@ -69,6 +76,44 @@ def _current_or_next_weekly_window():
         start_at += timedelta(days=7)
 
     return start_at, start_at + timedelta(days=7)
+
+
+def _last_sunday(year: int, month: int):
+    if month == 12:
+        last_day = datetime(year + 1, 1, 1, tzinfo=SCHEDULER_TIMEZONE) - timedelta(days=1)
+    else:
+        last_day = datetime(year, month + 1, 1, tzinfo=SCHEDULER_TIMEZONE) - timedelta(days=1)
+
+    days_since_sunday = (last_day.weekday() - 6) % 7
+    return last_day - timedelta(days=days_since_sunday)
+
+
+def _add_month(year: int, month: int):
+    if month == 12:
+        return year + 1, 1
+    return year, month + 1
+
+
+def _monthly_start_for(year: int, month: int):
+    last_sunday = _last_sunday(year, month)
+    return last_sunday.replace(
+        hour=MONTHLY_TOURNAMENT_START_TIME.hour,
+        minute=MONTHLY_TOURNAMENT_START_TIME.minute,
+        second=0,
+        microsecond=0,
+    )
+
+
+def _current_or_next_monthly_window():
+    now = datetime.now(SCHEDULER_TIMEZONE)
+    start_at = _monthly_start_for(now.year, now.month)
+
+    if start_at <= now:
+        next_year, next_month = _add_month(now.year, now.month)
+        start_at = _monthly_start_for(next_year, next_month)
+
+    end_year, end_month = _add_month(start_at.year, start_at.month)
+    return start_at, _monthly_start_for(end_year, end_month)
 
 
 def _current_or_next_daily_window(hour: int):
@@ -133,6 +178,52 @@ async def _ensure_weekly_tournament():
 
             print(
                 "Created weekly tournament "
+                f"{row['id']} from {start_at.isoformat()} to {end_at.isoformat()}"
+            )
+
+
+async def _ensure_monthly_tournament():
+    pool = get_pool()
+    start_at, end_at = _current_or_next_monthly_window()
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            existing = await conn.fetchrow(
+                """
+                SELECT id, start_time
+                FROM tournaments
+                WHERE type = 'monthly'
+                  AND status NOT IN ('completed', 'cancelled')
+                ORDER BY start_time DESC
+                LIMIT 1
+                FOR UPDATE
+                """
+            )
+
+            if existing:
+                return
+
+            row = await conn.fetchrow(
+                """
+                INSERT INTO tournaments
+                    (name, start_time, end_time, max_players, type, sets,
+                     entry_fee, currency_type, round_time_seconds, prize)
+                VALUES ($1, $2, $3, $4, 'monthly', $5, $6, $7, $8, $9)
+                RETURNING id
+                """,
+                MONTHLY_TOURNAMENT_NAME,
+                start_at,
+                end_at,
+                MONTHLY_TOURNAMENT_MAX_PLAYERS,
+                MONTHLY_TOURNAMENT_SETS,
+                MONTHLY_TOURNAMENT_ENTRY_FEE,
+                MONTHLY_TOURNAMENT_CURRENCY_TYPE,
+                MONTHLY_TOURNAMENT_ROUND_TIME_SECONDS,
+                MONTHLY_TOURNAMENT_ENTRY_FEE * 2,
+            )
+
+            print(
+                "Created monthly tournament "
                 f"{row['id']} from {start_at.isoformat()} to {end_at.isoformat()}"
             )
 
@@ -299,6 +390,7 @@ async def _loop():
             await _ensure_free_tournaments()
             await _ensure_daily_tournaments()
             await _ensure_weekly_tournament()
+            await _ensure_monthly_tournament()
             await _check_due_tournaments()
         except Exception as e:
             print(f"Scheduler tick failed: {e}")

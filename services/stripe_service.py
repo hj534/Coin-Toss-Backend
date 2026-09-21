@@ -1,6 +1,6 @@
 import stripe
 from config.settings import STRIPE_SECRET_KEY, CHECKOUT_SUCCESS_URL, CHECKOUT_CANCEL_URL
-from config.events import CASH_UPDATED_EVENT, COINS_UPDATED_EVENT, COIN_MODEL_UNLOCKED_EVENT
+from config.events import CASH_UPDATED_EVENT, COINS_UPDATED_EVENT, COIN_MODEL_UNLOCKED_EVENT, MEMBERSHIP_UPDATED_EVENT
 from services.playfab_service import (
     update_playfab_cash,
     update_playfab_coins,
@@ -199,7 +199,9 @@ def handle_webhook(event):
         membership_id = metadata.get("membership_id")
         playfab_id = metadata.get("playfab_id")
         if playfab_id and membership_id:
-            set_active_membership(playfab_id, membership_id)
+            success = set_active_membership(playfab_id, membership_id)
+            if success:
+                asyncio.create_task(manager.send_event(playfab_id, MEMBERSHIP_UPDATED_EVENT))
 
     else:
         print("Unhandled Stripe session with unknown purpose.")

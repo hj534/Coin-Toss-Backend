@@ -15,7 +15,7 @@ class TournamentCreate(BaseModel):
     @field_validator("max_players")
     @classmethod
     def validate_max_players(cls, value: int) -> int:
-        allowed_values = {4, 8, 16, 32, 64}
+        allowed_values = {4, 8, 16, 20, 32, 64}
         if value not in allowed_values:
             raise ValueError(f"max_players must be one of {sorted(allowed_values)}")
         return value
