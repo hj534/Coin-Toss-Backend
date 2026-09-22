@@ -742,16 +742,38 @@ class TournamentService:
         return TournamentOut(**dict(row)) if row else None
     
     
-    async def get_leaderboard(self, limit: int = 50) -> list[LeaderboardEntryOut]:
+    async def get_leaderboard(
+        self,
+        limit: int = 50,
+        playfab_id: str | None = None,
+        display_name: str | None = None,
+    ) -> list[LeaderboardEntryOut]:
         pool = get_pool()
         rows = await pool.fetch(
             """
+            WITH known_players AS (
+                SELECT
+                    tp.playfab_id,
+                    MAX(tp.display_name) AS display_name
+                FROM tournament_participants tp
+                GROUP BY tp.playfab_id
+
+                UNION ALL
+
+                SELECT
+                    $1::text AS playfab_id,
+                    $2::text AS display_name
+                WHERE $1 IS NOT NULL AND $1 <> ''
+            )
             SELECT
-                tp.playfab_id,
-                MAX(tp.display_name) AS display_name
-            FROM tournament_participants tp
-            GROUP BY tp.playfab_id
+                playfab_id,
+                COALESCE(MAX(NULLIF(display_name, '')), playfab_id) AS display_name
+            FROM known_players
+            WHERE playfab_id IS NOT NULL AND playfab_id <> ''
+            GROUP BY playfab_id
             """,
+            playfab_id,
+            display_name,
         )
         entries = []
         for row in rows:

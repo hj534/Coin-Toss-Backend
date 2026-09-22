@@ -78,8 +78,12 @@ async def get_my_active_tournament(playfab_id: str):
 
 
 @router.get("/get_leaderboard/", response_model=list[LeaderboardEntryOut])
-async def get_leaderboard(limit: int = 50):
-    return await service.get_leaderboard(limit)
+async def get_leaderboard(
+    limit: int = 50,
+    playfab_id: str | None = None,
+    display_name: str | None = None,
+):
+    return await service.get_leaderboard(limit, playfab_id, display_name)
 
 @router.get("/get_tournament/{tournament_id}/", response_model=TournamentOut)
 async def get_tournament_by_id(tournament_id: int):
