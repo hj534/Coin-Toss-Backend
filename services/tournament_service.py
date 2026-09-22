@@ -22,7 +22,12 @@ from models.tournament import (
 from datetime import datetime, timedelta, timezone
 
 from services.email_service import send_tournament_winner_email
-from services.playfab_service import get_playfab_points, update_playfab_cash, update_playfab_points
+from services.playfab_service import (
+    get_active_membership_id,
+    get_playfab_points,
+    update_playfab_cash,
+    update_playfab_points,
+)
 
 TOURNAMENT_DURATIONS = {
     "free": timedelta(hours=3),
@@ -777,6 +782,10 @@ class TournamentService:
         )
         entries = []
         for row in rows:
+            active_membership_id = get_active_membership_id(row["playfab_id"])
+            if not active_membership_id:
+                continue
+
             points = get_playfab_points(row["playfab_id"])
             entries.append(
                 LeaderboardEntryOut(
