@@ -2,6 +2,7 @@ from services.db import get_pool
 from services.websocket_instance import manager
 from config.events import (
     CASH_UPDATED_EVENT,
+    POINTS_UPDATED_EVENT,
     TOURNAMENT_UPDATED_EVENT,
     TOURNAMENT_ROUND_STARTED_EVENT,
     TOURNAMENT_COMPLETED_EVENT,
@@ -17,6 +18,7 @@ from models.tournament import (
     LeaderboardEntryOut,
     MatchResultResponse,
     ParticipantResultOut,
+    PlayerLeaderboardPointsOut,
 )
 from datetime import datetime, timedelta, timezone
 
@@ -478,6 +480,9 @@ class TournamentService:
             if cash_success:
                 await manager.send_event(playfab_id, CASH_UPDATED_EVENT)
 
+            if points_reward > 0:
+                await manager.send_event(playfab_id, POINTS_UPDATED_EVENT)
+
             if cash_success:
                 print(
                     f"Tournament rank {rank} reward paid: "
@@ -829,6 +834,37 @@ class TournamentService:
             )
 
         return [LeaderboardEntryOut(**dict(row)) for row in rows]
+
+    async def get_player_leaderboard_points(
+        self,
+        playfab_id: str,
+        display_name: str | None = None,
+    ) -> PlayerLeaderboardPointsOut:
+        active_membership_id = get_active_membership_id(playfab_id)
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO player_leaderboard
+                    (playfab_id, display_name, points, active_membership_id, updated_at)
+                VALUES ($1, $2, 0, $3, NOW())
+                ON CONFLICT (playfab_id) DO UPDATE
+                SET
+                    display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), player_leaderboard.display_name),
+                    active_membership_id = EXCLUDED.active_membership_id,
+                    updated_at = NOW()
+                RETURNING playfab_id, points
+                """,
+                playfab_id,
+                display_name or playfab_id,
+                active_membership_id or "",
+            )
+
+        return PlayerLeaderboardPointsOut(
+            playfab_id=row["playfab_id"],
+            points=row["points"],
+            leaderboard_eligible=bool(active_membership_id),
+        )
     
     async def get_tournament_results(self, tournament_id: int) -> list[ParticipantResultOut]:
         pool = get_pool()
