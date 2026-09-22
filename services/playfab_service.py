@@ -198,6 +198,19 @@ def update_playfab_points(playfab_id: str, points_to_add: int):
     return update_response.ok
 
 
+def get_playfab_points(playfab_id: str) -> int:
+    get_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/GetUserData"
+    try:
+        get_response = requests.post(get_data_url, headers={
+            "X-SecretKey": PLAYFAB_SECRET_KEY
+        }, json={"PlayFabId": playfab_id})
+        get_response.raise_for_status()
+        return int(get_response.json()["data"]["Data"].get("Points", {}).get("Value", 0))
+    except Exception as e:
+        print(f"Error getting points for user {playfab_id}: {e}")
+        return 0
+
+
 def update_playfab_coins(playfab_id: str, coins_to_add: int):
     get_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/GetUserData"
     headers = {

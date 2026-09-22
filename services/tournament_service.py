@@ -2,6 +2,7 @@ from services.db import get_pool
 from services.websocket_instance import manager
 from config.events import (
     CASH_UPDATED_EVENT,
+    POINTS_UPDATED_EVENT,
     TOURNAMENT_UPDATED_EVENT,
     TOURNAMENT_ROUND_STARTED_EVENT,
     TOURNAMENT_COMPLETED_EVENT,
@@ -21,7 +22,7 @@ from models.tournament import (
 from datetime import datetime, timedelta, timezone
 
 from services.email_service import send_tournament_winner_email
-from services.playfab_service import update_playfab_cash, update_playfab_points
+from services.playfab_service import get_playfab_points, update_playfab_cash, update_playfab_points
 
 TOURNAMENT_DURATIONS = {
     "free": timedelta(hours=3),
@@ -453,6 +454,9 @@ class TournamentService:
             if cash_success:
                 await manager.send_event(playfab_id, CASH_UPDATED_EVENT)
 
+            if points_reward > 0 and points_success:
+                await manager.send_event(playfab_id, POINTS_UPDATED_EVENT)
+
             if cash_success and points_success:
                 print(
                     f"Tournament rank {rank} reward paid: "
@@ -744,17 +748,25 @@ class TournamentService:
             """
             SELECT
                 tp.playfab_id,
-                MAX(tp.display_name) AS display_name,
-                COUNT(*) AS wins
-            FROM tournament_champions tc
-            JOIN tournament_participants tp ON tp.id = tc.participant_id
+                MAX(tp.display_name) AS display_name
+            FROM tournament_participants tp
             GROUP BY tp.playfab_id
-            ORDER BY wins DESC
-            LIMIT $1
             """,
-            limit,
         )
-        return [LeaderboardEntryOut(**dict(r)) for r in rows]
+        entries = []
+        for row in rows:
+            points = get_playfab_points(row["playfab_id"])
+            entries.append(
+                LeaderboardEntryOut(
+                    playfab_id=row["playfab_id"],
+                    display_name=row["display_name"],
+                    wins=points,
+                    points=points,
+                )
+            )
+
+        entries.sort(key=lambda entry: entry.points, reverse=True)
+        return entries[:limit]
     
     async def get_tournament_results(self, tournament_id: int) -> list[ParticipantResultOut]:
         pool = get_pool()

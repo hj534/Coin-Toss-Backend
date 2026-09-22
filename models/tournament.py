@@ -126,6 +126,7 @@ class LeaderboardEntryOut(BaseModel):
     playfab_id: str
     display_name: str
     wins: int
+    points: int = 0
     
     
 class MatchResultResponse(BaseModel):

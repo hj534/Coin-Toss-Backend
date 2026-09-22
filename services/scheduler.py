@@ -26,7 +26,7 @@ MONTHLY_TOURNAMENT_CURRENCY_TYPE = "cash"
 MONTHLY_TOURNAMENT_ROUND_TIME_SECONDS = 60
 BIMONTHLY_TOURNAMENT_NAME = "Best of the Best Coin Flipping Championships Major Main Event"
 BIMONTHLY_TOURNAMENT_START_TIME = time(hour=13, minute=0)
-BIMONTHLY_TOURNAMENT_MAX_PLAYERS = 20
+BIMONTHLY_TOURNAMENT_MAX_PLAYERS = 16
 BIMONTHLY_TOURNAMENT_ENTRY_FEE = 50000
 BIMONTHLY_TOURNAMENT_SETS = 7
 BIMONTHLY_TOURNAMENT_CURRENCY_TYPE = "cash"
@@ -280,7 +280,7 @@ async def _ensure_bimonthly_tournament():
         async with conn.transaction():
             existing = await conn.fetchrow(
                 """
-                SELECT id, start_time
+                SELECT id, start_time, max_players, current_players
                 FROM tournaments
                 WHERE type = 'bimonthly'
                   AND status NOT IN ('completed', 'cancelled')
@@ -291,6 +291,23 @@ async def _ensure_bimonthly_tournament():
             )
 
             if existing:
+                if (
+                    existing["max_players"] != BIMONTHLY_TOURNAMENT_MAX_PLAYERS
+                    and existing["current_players"] <= BIMONTHLY_TOURNAMENT_MAX_PLAYERS
+                ):
+                    await conn.execute(
+                        """
+                        UPDATE tournaments
+                        SET max_players = $1
+                        WHERE id = $2
+                        """,
+                        BIMONTHLY_TOURNAMENT_MAX_PLAYERS,
+                        existing["id"],
+                    )
+                    print(
+                        "Updated bimonthly tournament "
+                        f"{existing['id']} max_players to {BIMONTHLY_TOURNAMENT_MAX_PLAYERS}"
+                    )
                 return
 
             row = await conn.fetchrow(
