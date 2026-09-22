@@ -517,7 +517,7 @@ def stop_scheduler():
 
 async def _check_expired_tournaments():
     pool = get_pool()
-    completed_tournament_rewards: list[list[tuple[str, int, int, int]]] = []
+    completed_tournament_rewards: list[list[tuple[str, str, int, int, int]]] = []
 
     async with pool.acquire() as conn:
         async with conn.transaction():

@@ -2,7 +2,6 @@ from services.db import get_pool
 from services.websocket_instance import manager
 from config.events import (
     CASH_UPDATED_EVENT,
-    POINTS_UPDATED_EVENT,
     TOURNAMENT_UPDATED_EVENT,
     TOURNAMENT_ROUND_STARTED_EVENT,
     TOURNAMENT_COMPLETED_EVENT,
@@ -24,9 +23,7 @@ from datetime import datetime, timedelta, timezone
 from services.email_service import send_tournament_winner_email
 from services.playfab_service import (
     get_active_membership_id,
-    get_playfab_points,
     update_playfab_cash,
-    update_playfab_points,
 )
 
 TOURNAMENT_DURATIONS = {
@@ -385,7 +382,7 @@ class TournamentService:
         self,
         conn,
         tournament_id: int,
-    ) -> list[tuple[str, int, int, int]]:
+    ) -> list[tuple[str, str, int, int, int]]:
         tournament = await conn.fetchrow(
             "SELECT type, entry_fee FROM tournaments WHERE id = $1",
             tournament_id,
@@ -407,6 +404,7 @@ class TournamentService:
                 SELECT
                     participant.id,
                     participant.playfab_id,
+                    participant.display_name,
                     participant.registered_at,
                     participant.eliminated,
                     COUNT(match.id) AS wins,
@@ -424,10 +422,11 @@ class TournamentService:
                 GROUP BY
                     participant.id,
                     participant.playfab_id,
+                    participant.display_name,
                     participant.registered_at,
                     participant.eliminated
             )
-            SELECT playfab_id, wins
+            SELECT playfab_id, display_name, wins
             FROM ranked_players
             ORDER BY is_champion DESC, wins DESC, eliminated ASC, registered_at ASC, id ASC
             LIMIT $2
@@ -439,6 +438,7 @@ class TournamentService:
         return [
             (
                 row["playfab_id"],
+                row["display_name"],
                 reward_table[index]["cash"],
                 reward_table[index]["points"],
                 index + 1,
@@ -448,29 +448,45 @@ class TournamentService:
 
     async def _award_tournament_rewards(
         self,
-        rewards: list[tuple[str, int, int, int]],
+        rewards: list[tuple[str, str, int, int, int]],
     ):
-        for playfab_id, cash_reward, points_reward, rank in rewards:
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            for playfab_id, display_name, cash_reward, points_reward, rank in rewards:
+                active_membership_id = get_active_membership_id(playfab_id)
+                await conn.execute(
+                    """
+                    INSERT INTO player_leaderboard
+                        (playfab_id, display_name, points, active_membership_id, updated_at)
+                    VALUES ($1, $2, $3, $4, NOW())
+                    ON CONFLICT (playfab_id) DO UPDATE
+                    SET
+                        display_name = EXCLUDED.display_name,
+                        points = player_leaderboard.points + EXCLUDED.points,
+                        active_membership_id = EXCLUDED.active_membership_id,
+                        updated_at = NOW()
+                    """,
+                    playfab_id,
+                    display_name or playfab_id,
+                    max(points_reward, 0),
+                    active_membership_id or "",
+                )
+
+        for playfab_id, display_name, cash_reward, points_reward, rank in rewards:
             cash_success = update_playfab_cash(playfab_id, cash_reward)
-            points_success = True
-            if points_reward > 0:
-                points_success = update_playfab_points(playfab_id, points_reward)
 
             if cash_success:
                 await manager.send_event(playfab_id, CASH_UPDATED_EVENT)
 
-            if points_reward > 0 and points_success:
-                await manager.send_event(playfab_id, POINTS_UPDATED_EVENT)
-
-            if cash_success and points_success:
+            if cash_success:
                 print(
                     f"Tournament rank {rank} reward paid: "
-                    f"{cash_reward} cash and {points_reward} points to {playfab_id}"
+                    f"{cash_reward} cash and {points_reward} leaderboard points to {playfab_id}"
                 )
             else:
                 print(
-                    f"Failed to fully pay tournament rank {rank} reward "
-                    f"({cash_reward} cash, {points_reward} points) to {playfab_id}"
+                    f"Failed to fully pay tournament rank {rank} cash reward "
+                    f"({cash_reward} cash) to {playfab_id}"
                 )
 
 
@@ -480,7 +496,7 @@ class TournamentService:
         tournament_finished_data = None
         tournament_info = None
         champ_email = None
-        tournament_rewards: list[tuple[str, int, int, int]] = []
+        tournament_rewards: list[tuple[str, str, int, int, int]] = []
 
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -754,50 +770,65 @@ class TournamentService:
         display_name: str | None = None,
     ) -> list[LeaderboardEntryOut]:
         pool = get_pool()
-        rows = await pool.fetch(
-            """
-            WITH known_players AS (
-                SELECT
-                    tp.playfab_id,
-                    MAX(tp.display_name) AS display_name
-                FROM tournament_participants tp
-                GROUP BY tp.playfab_id
+        async with pool.acquire() as conn:
+            known_players = await conn.fetch(
+                """
+                WITH known_players AS (
+                    SELECT
+                        tp.playfab_id,
+                        MAX(tp.display_name) AS display_name
+                    FROM tournament_participants tp
+                    GROUP BY tp.playfab_id
 
-                UNION ALL
+                    UNION ALL
 
-                SELECT
-                    $1::text AS playfab_id,
-                    $2::text AS display_name
-                WHERE $1 IS NOT NULL AND $1 <> ''
-            )
-            SELECT
-                playfab_id,
-                COALESCE(MAX(NULLIF(display_name, '')), playfab_id) AS display_name
-            FROM known_players
-            WHERE playfab_id IS NOT NULL AND playfab_id <> ''
-            GROUP BY playfab_id
-            """,
-            playfab_id,
-            display_name,
-        )
-        entries = []
-        for row in rows:
-            active_membership_id = get_active_membership_id(row["playfab_id"])
-            if not active_membership_id:
-                continue
-
-            points = get_playfab_points(row["playfab_id"])
-            entries.append(
-                LeaderboardEntryOut(
-                    playfab_id=row["playfab_id"],
-                    display_name=row["display_name"],
-                    wins=points,
-                    points=points,
+                    SELECT
+                        $1::text AS playfab_id,
+                        $2::text AS display_name
+                    WHERE $1 IS NOT NULL AND $1 <> ''
                 )
+                SELECT
+                    playfab_id,
+                    COALESCE(MAX(NULLIF(display_name, '')), playfab_id) AS display_name
+                FROM known_players
+                WHERE playfab_id IS NOT NULL AND playfab_id <> ''
+                GROUP BY playfab_id
+                """,
+                playfab_id,
+                display_name,
             )
 
-        entries.sort(key=lambda entry: entry.points, reverse=True)
-        return entries[:limit]
+            for row in known_players:
+                active_membership_id = get_active_membership_id(row["playfab_id"])
+                await conn.execute(
+                    """
+                    INSERT INTO player_leaderboard
+                        (playfab_id, display_name, points, active_membership_id, updated_at)
+                    VALUES ($1, $2, $3, $4, NOW())
+                    ON CONFLICT (playfab_id) DO UPDATE
+                    SET
+                        display_name = EXCLUDED.display_name,
+                        active_membership_id = EXCLUDED.active_membership_id,
+                        updated_at = NOW()
+                    """,
+                    row["playfab_id"],
+                    row["display_name"],
+                    0,
+                    active_membership_id or "",
+                )
+
+            rows = await conn.fetch(
+                """
+                SELECT playfab_id, display_name, points AS wins, points
+                FROM player_leaderboard
+                WHERE active_membership_id <> ''
+                ORDER BY points DESC, updated_at ASC
+                LIMIT $1
+                """,
+                limit,
+            )
+
+        return [LeaderboardEntryOut(**dict(row)) for row in rows]
     
     async def get_tournament_results(self, tournament_id: int) -> list[ParticipantResultOut]:
         pool = get_pool()
