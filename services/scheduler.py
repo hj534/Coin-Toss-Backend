@@ -351,12 +351,11 @@ async def _ensure_daily_tournaments():
                     FROM tournaments
                     WHERE name = $1
                       AND type = 'daily'
-                      AND start_time = $2
+                      AND status NOT IN ('completed', 'cancelled')
                     LIMIT 1
                     FOR UPDATE
                     """,
                     name,
-                    start_at,
                 )
 
                 if existing:
