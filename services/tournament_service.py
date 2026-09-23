@@ -19,6 +19,7 @@ from models.tournament import (
     MatchResultResponse,
     ParticipantResultOut,
     PlayerLeaderboardPointsOut,
+    PlayerPrizeOut,
 )
 from datetime import datetime, timedelta, timezone
 
@@ -31,8 +32,9 @@ from services.playfab_service import (
 TOURNAMENT_DURATIONS = {
     "free": timedelta(hours=3),
     "daily": timedelta(days=1),
-    "weekly": timedelta(days=7),
-    "monthly": timedelta(days=30),
+    "weekly": timedelta(days=1),
+    "monthly": timedelta(days=1),
+    "bimonthly": timedelta(days=1),
 }
 TOURNAMENT_RANK_REWARDS = {
     0: [
@@ -82,6 +84,74 @@ TOURNAMENT_RANK_REWARDS = {
         {"cash": 3000, "points": 100},
         {"cash": 2000, "points": 50},
         {"cash": 1000, "points": 25},
+    ],
+}
+SPECIAL_TOURNAMENT_RANK_REWARDS = {
+    "weekly": [
+        {
+            "points": 4000,
+            "prizes": [
+                {
+                    "type": "bracelet",
+                    "name": "14k gold Mint Wars monthly Champion bracelet",
+                    "value": "1 bracelet",
+                },
+                {"type": "gift_card", "name": "$500 gift card", "value": "$500"},
+            ],
+        },
+        {"points": 3000, "prizes": [{"type": "gift_card", "name": "$400 gift card", "value": "$400"}]},
+        {"points": 2000, "prizes": [{"type": "gift_card", "name": "$200 gift card", "value": "$200"}]},
+        {"points": 1000, "prizes": [{"type": "gift_card", "name": "$100 gift card", "value": "$100"}]},
+        {"points": 800, "prizes": [{"type": "gift_card", "name": "$50 gift card", "value": "$50"}]},
+        {"points": 500, "prizes": [{"type": "gift_card", "name": "$40 gift card", "value": "$40"}]},
+        {"points": 200, "prizes": [{"type": "gift_card", "name": "$20 gift card", "value": "$20"}]},
+        {"points": 100, "prizes": [{"type": "gift_card", "name": "$10 gift card", "value": "$10"}]},
+        {"points": 50, "prizes": [{"type": "gift_card", "name": "$5 gift card", "value": "$5"}]},
+        {"points": 20, "prizes": [{"type": "gift_card", "name": "$5 gift card", "value": "$5"}]},
+    ],
+    "monthly": [
+        {
+            "points": 8000,
+            "prizes": [
+                {
+                    "type": "bracelet",
+                    "name": "14k gold Mint Wars weekly champion bracelet",
+                    "value": "1 bracelet",
+                },
+                {"type": "gift_card", "name": "$1000 gift card", "value": "$1000"},
+            ],
+        },
+        {"points": 7000, "prizes": [{"type": "gift_card", "name": "$800 gift card", "value": "$800"}]},
+        {"points": 6000, "prizes": [{"type": "gift_card", "name": "$700 gift card", "value": "$700"}]},
+        {"points": 5000, "prizes": [{"type": "gift_card", "name": "$600 gift card", "value": "$600"}]},
+        {"points": 4000, "prizes": [{"type": "gift_card", "name": "$400 gift card", "value": "$400"}]},
+        {"points": 3000, "prizes": [{"type": "gift_card", "name": "$300 gift card", "value": "$300"}]},
+        {"points": 2000, "prizes": [{"type": "gift_card", "name": "$200 gift card", "value": "$200"}]},
+        {"points": 1000, "prizes": [{"type": "gift_card", "name": "$100 gift card", "value": "$100"}]},
+        {"points": 400, "prizes": [{"type": "gift_card", "name": "$80 gift card", "value": "$80"}]},
+        {"points": 200, "prizes": [{"type": "gift_card", "name": "$40 gift card", "value": "$40"}]},
+    ],
+    "bimonthly": [
+        {
+            "points": 18000,
+            "prizes": [
+                {
+                    "type": "bracelet",
+                    "name": "14k gold Mint Wars Champion bracelet",
+                    "value": "1 bracelet",
+                },
+                {"type": "gift_card", "name": "$2000 gift card", "value": "$2000"},
+            ],
+        },
+        {"points": 15000, "prizes": [{"type": "gift_card", "name": "$1000 gift card", "value": "$1000"}]},
+        {"points": 10000, "prizes": [{"type": "gift_card", "name": "$800 gift card", "value": "$800"}]},
+        {"points": 8000, "prizes": [{"type": "gift_card", "name": "$900 gift card", "value": "$900"}]},
+        {"points": 6000, "prizes": [{"type": "gift_card", "name": "$700 gift card", "value": "$700"}]},
+        {"points": 4000, "prizes": [{"type": "gift_card", "name": "$800 gift card", "value": "$800"}]},
+        {"points": 3000, "prizes": [{"type": "gift_card", "name": "$500 gift card", "value": "$500"}]},
+        {"points": 2000, "prizes": [{"type": "gift_card", "name": "$400 gift card", "value": "$400"}]},
+        {"points": 1000, "prizes": [{"type": "gift_card", "name": "$300 gift card", "value": "$300"}]},
+        {"points": 800, "prizes": [{"type": "gift_card", "name": "$200 gift card", "value": "$200"}]},
     ],
 }
 
@@ -384,22 +454,23 @@ class TournamentService:
         self,
         conn,
         tournament_id: int,
-    ) -> list[tuple[str, str, int, int, int]]:
+    ) -> list[dict]:
         tournament = await conn.fetchrow(
-            "SELECT type, entry_fee FROM tournaments WHERE id = $1",
+            "SELECT id, name, type, entry_fee FROM tournaments WHERE id = $1",
             tournament_id,
         )
 
         if not tournament:
             return []
 
-        reward_table = TOURNAMENT_RANK_REWARDS.get(tournament["entry_fee"])
+        if tournament["type"] in {"free", "daily"}:
+            reward_table = TOURNAMENT_RANK_REWARDS.get(tournament["entry_fee"])
+        else:
+            reward_table = SPECIAL_TOURNAMENT_RANK_REWARDS.get(tournament["type"])
+
         if not reward_table:
             return []
-
-        if tournament["type"] not in {"free", "daily"}:
-            return []
-
+        
         rows = await conn.fetch(
             """
             WITH ranked_players AS (
@@ -438,23 +509,29 @@ class TournamentService:
         )
 
         return [
-            (
-                row["playfab_id"],
-                row["display_name"],
-                reward_table[index]["cash"],
-                reward_table[index]["points"],
-                index + 1,
-            )
+            {
+                "playfab_id": row["playfab_id"],
+                "display_name": row["display_name"],
+                "cash": reward_table[index].get("cash", 0),
+                "points": reward_table[index].get("points", 0),
+                "prizes": reward_table[index].get("prizes", []),
+                "rank": index + 1,
+                "tournament_id": tournament["id"],
+                "tournament_name": tournament["name"],
+            }
             for index, row in enumerate(rows)
         ]
 
     async def _award_tournament_rewards(
         self,
-        rewards: list[tuple[str, str, int, int, int]],
+        rewards: list[dict],
     ):
         pool = get_pool()
         async with pool.acquire() as conn:
-            for playfab_id, display_name, cash_reward, points_reward, rank in rewards:
+            for reward in rewards:
+                playfab_id = reward["playfab_id"]
+                display_name = reward["display_name"] or playfab_id
+                points_reward = reward["points"]
                 active_membership_id = get_active_membership_id(playfab_id)
                 await conn.execute(
                     """
@@ -469,15 +546,55 @@ class TournamentService:
                         updated_at = NOW()
                     """,
                     playfab_id,
-                    display_name or playfab_id,
+                    display_name,
                     max(points_reward, 0),
                     active_membership_id or "",
                 )
 
-        for playfab_id, display_name, cash_reward, points_reward, rank in rewards:
-            cash_success = update_playfab_cash(playfab_id, cash_reward)
+                for prize in reward["prizes"]:
+                    await conn.execute(
+                        """
+                        INSERT INTO player_prizes
+                            (
+                                playfab_id,
+                                display_name,
+                                tournament_id,
+                                tournament_name,
+                                rank,
+                                prize_type,
+                                prize_name,
+                                prize_value
+                            )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        ON CONFLICT (
+                            playfab_id,
+                            tournament_id,
+                            rank,
+                            prize_type,
+                            prize_name
+                        ) DO NOTHING
+                        """,
+                        playfab_id,
+                        display_name,
+                        reward["tournament_id"],
+                        reward["tournament_name"],
+                        reward["rank"],
+                        prize["type"],
+                        prize["name"],
+                        prize.get("value", ""),
+                    )
 
-            if cash_success:
+        for reward in rewards:
+            playfab_id = reward["playfab_id"]
+            cash_reward = reward["cash"]
+            points_reward = reward["points"]
+            rank = reward["rank"]
+            cash_success = True
+
+            if cash_reward > 0:
+                cash_success = update_playfab_cash(playfab_id, cash_reward)
+
+            if cash_success and cash_reward > 0:
                 await manager.send_event(playfab_id, CASH_UPDATED_EVENT)
 
             if points_reward > 0:
@@ -501,7 +618,7 @@ class TournamentService:
         tournament_finished_data = None
         tournament_info = None
         champ_email = None
-        tournament_rewards: list[tuple[str, str, int, int, int]] = []
+        tournament_rewards: list[dict] = []
 
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -885,3 +1002,29 @@ class TournamentService:
             tournament_id,
         )
         return [ParticipantResultOut(**dict(r)) for r in rows]
+
+    async def get_player_prizes(self, playfab_id: str) -> list[PlayerPrizeOut]:
+        pool = get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT
+                id,
+                playfab_id,
+                display_name,
+                tournament_id,
+                tournament_name,
+                rank,
+                prize_type,
+                prize_name,
+                prize_value,
+                status,
+                earned_at,
+                delivered_at,
+                admin_notes
+            FROM player_prizes
+            WHERE playfab_id = $1
+            ORDER BY earned_at DESC, id DESC
+            """,
+            playfab_id,
+        )
+        return [PlayerPrizeOut(**dict(row)) for row in rows]

@@ -13,21 +13,21 @@ WEEKLY_TOURNAMENT_NAME = "Best of the Best Coin Flipping Champs Weekly Mini Main
 WEEKLY_TOURNAMENT_START_DAY = 5  # Saturday, where Monday is 0.
 WEEKLY_TOURNAMENT_START_TIME = time(hour=20, minute=0)
 WEEKLY_TOURNAMENT_MAX_PLAYERS = 16
-WEEKLY_TOURNAMENT_ENTRY_FEE = 10000
+WEEKLY_TOURNAMENT_ENTRY_FEE = 5000
 WEEKLY_TOURNAMENT_SETS = 5
 WEEKLY_TOURNAMENT_CURRENCY_TYPE = "cash"
 WEEKLY_TOURNAMENT_ROUND_TIME_SECONDS = 60
 MONTHLY_TOURNAMENT_NAME = "Best of the Best Coin Flipping Champs Monthly Main Event"
 MONTHLY_TOURNAMENT_START_TIME = time(hour=13, minute=0)
 MONTHLY_TOURNAMENT_MAX_PLAYERS = 20
-MONTHLY_TOURNAMENT_ENTRY_FEE = 20000
+MONTHLY_TOURNAMENT_ENTRY_FEE = 4000
 MONTHLY_TOURNAMENT_SETS = 5
 MONTHLY_TOURNAMENT_CURRENCY_TYPE = "cash"
 MONTHLY_TOURNAMENT_ROUND_TIME_SECONDS = 60
 BIMONTHLY_TOURNAMENT_NAME = "Best of the Best Coin Flipping Championships Major Main Event"
 BIMONTHLY_TOURNAMENT_START_TIME = time(hour=13, minute=0)
 BIMONTHLY_TOURNAMENT_MAX_PLAYERS = 16
-BIMONTHLY_TOURNAMENT_ENTRY_FEE = 50000
+BIMONTHLY_TOURNAMENT_ENTRY_FEE = 10000
 BIMONTHLY_TOURNAMENT_SETS = 7
 BIMONTHLY_TOURNAMENT_CURRENCY_TYPE = "cash"
 BIMONTHLY_TOURNAMENT_ROUND_TIME_SECONDS = 600
@@ -82,7 +82,7 @@ def _current_or_next_weekly_window():
     if start_at <= now:
         start_at += timedelta(days=7)
 
-    return start_at, start_at + timedelta(days=7)
+    return start_at, start_at + timedelta(days=1)
 
 
 def _last_sunday(year: int, month: int):
@@ -129,8 +129,7 @@ def _current_or_next_monthly_window():
         next_year, next_month = _add_month(now.year, now.month)
         start_at = _monthly_start_for(next_year, next_month)
 
-    end_year, end_month = _add_month(start_at.year, start_at.month)
-    return start_at, _monthly_start_for(end_year, end_month)
+    return start_at, start_at + timedelta(days=1)
 
 
 def _add_months(year: int, month: int, count: int):
@@ -156,8 +155,7 @@ def _current_or_next_bimonthly_window():
         year, month = _add_months(year, month, 2)
         start_at = _bimonthly_start_for(year, month)
 
-    end_year, end_month = _add_months(start_at.year, start_at.month, 2)
-    return start_at, _bimonthly_start_for(end_year, end_month)
+    return start_at, start_at + timedelta(days=1)
 
 
 def _current_or_next_daily_window(hour: int):
@@ -516,7 +514,7 @@ def stop_scheduler():
 
 async def _check_expired_tournaments():
     pool = get_pool()
-    completed_tournament_rewards: list[list[tuple[str, str, int, int, int]]] = []
+    completed_tournament_rewards: list[list[dict]] = []
 
     async with pool.acquire() as conn:
         async with conn.transaction():

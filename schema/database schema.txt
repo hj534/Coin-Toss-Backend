@@ -85,3 +85,29 @@ CREATE TABLE player_leaderboard (
     active_membership_id TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+
+CREATE TABLE player_prizes (
+    id SERIAL PRIMARY KEY,
+    playfab_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    tournament_id INTEGER NOT NULL,
+    tournament_name TEXT NOT NULL,
+    rank INTEGER NOT NULL,
+    prize_type TEXT NOT NULL,
+    prize_name TEXT NOT NULL,
+    prize_value TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'earned',
+    earned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    delivered_at TIMESTAMPTZ,
+    admin_notes TEXT NOT NULL DEFAULT ''
+);
+
+CREATE UNIQUE INDEX uq_player_prizes_reward
+ON player_prizes (
+    playfab_id,
+    tournament_id,
+    rank,
+    prize_type,
+    prize_name
+);

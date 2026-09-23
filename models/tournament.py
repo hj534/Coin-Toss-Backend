@@ -146,3 +146,19 @@ class ParticipantResultOut(BaseModel):
     display_name: str
     eliminated: bool
     is_champion: bool
+
+
+class PlayerPrizeOut(BaseModel):
+    id: int
+    playfab_id: str
+    display_name: str
+    tournament_id: int
+    tournament_name: str
+    rank: int
+    prize_type: str
+    prize_name: str
+    prize_value: str
+    status: str
+    earned_at: datetime
+    delivered_at: datetime | None = None
+    admin_notes: str = ""

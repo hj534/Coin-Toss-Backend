@@ -19,6 +19,50 @@ async def init_db_pool():
             )
             """
         )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS player_prizes (
+                id SERIAL PRIMARY KEY,
+                playfab_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                tournament_id INTEGER NOT NULL,
+                tournament_name TEXT NOT NULL,
+                rank INTEGER NOT NULL,
+                prize_type TEXT NOT NULL,
+                prize_name TEXT NOT NULL,
+                prize_value TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'earned',
+                earned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                delivered_at TIMESTAMPTZ,
+                admin_notes TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        prize_foreign_keys = await conn.fetch(
+            """
+            SELECT conname
+            FROM pg_constraint
+            WHERE conrelid = 'player_prizes'::regclass
+              AND contype = 'f'
+            """
+        )
+        for row in prize_foreign_keys:
+            constraint_name = row["conname"].replace('"', '""')
+            await conn.execute(
+                f'ALTER TABLE player_prizes DROP CONSTRAINT IF EXISTS "{constraint_name}"'
+            )
+        await conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_player_prizes_reward
+            ON player_prizes (
+                playfab_id,
+                tournament_id,
+                rank,
+                prize_type,
+                prize_name
+            )
+            """
+        )
     print("DB pool created")
  
  
