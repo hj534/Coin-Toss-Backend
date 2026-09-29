@@ -162,3 +162,12 @@ class PlayerPrizeOut(BaseModel):
     earned_at: datetime
     delivered_at: datetime | None = None
     admin_notes: str = ""
+
+
+class PendingTournamentResultOut(BaseModel):
+    tournament_id: int
+    tournament_name: str
+    rank: int
+    cash: int
+    points: int
+    prizes: list[dict] = []

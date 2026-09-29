@@ -20,6 +20,7 @@ from models.tournament import (
     ParticipantResultOut,
     PlayerLeaderboardPointsOut,
     PlayerPrizeOut,
+    PendingTournamentResultOut
 )
 from datetime import datetime, timedelta, timezone
 
@@ -551,6 +552,31 @@ class TournamentService:
                     active_membership_id or "",
                 )
 
+                # naya hissa - ek dafa dikhane wala pending result save karo
+                await conn.execute(
+                    """
+                    INSERT INTO pending_tournament_results
+                        (playfab_id, tournament_id, tournament_name, rank, cash, points, prizes)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    ON CONFLICT (playfab_id) DO UPDATE
+                    SET
+                        tournament_id = EXCLUDED.tournament_id,
+                        tournament_name = EXCLUDED.tournament_name,
+                        rank = EXCLUDED.rank,
+                        cash = EXCLUDED.cash,
+                        points = EXCLUDED.points,
+                        prizes = EXCLUDED.prizes,
+                        created_at = NOW()
+                    """,
+                    playfab_id,
+                    reward["tournament_id"],
+                    reward["tournament_name"],
+                    reward["rank"],
+                    reward["cash"],
+                    points_reward,
+                    json.dumps(reward["prizes"]),
+                )
+
                 for prize in reward["prizes"]:
                     await conn.execute(
                         """
@@ -609,9 +635,8 @@ class TournamentService:
                 print(
                     f"Failed to fully pay tournament rank {rank} cash reward "
                     f"({cash_reward} cash) to {playfab_id}"
-                )
-
-
+                )            
+                    
     async def submit_match_result(self, payload: MatchResultSubmit) -> MatchResultResponse:
         pool = get_pool()
         round_finished_data = None
@@ -1028,3 +1053,19 @@ class TournamentService:
             playfab_id,
         )
         return [PlayerPrizeOut(**dict(row)) for row in rows]
+    
+    async def get_and_clear_pending_result(
+        self, playfab_id: str
+    ) -> PendingTournamentResultOut | None:
+        pool = get_pool()
+        row = await pool.fetchrow(
+            "DELETE FROM pending_tournament_results WHERE playfab_id = $1 RETURNING *",
+            playfab_id,
+        )
+        if not row:
+            return None
+
+        data = dict(row)
+        prizes = data["prizes"]
+        data["prizes"] = json.loads(prizes) if isinstance(prizes, str) else prizes
+        return PendingTournamentResultOut(**data)

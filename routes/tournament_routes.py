@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from models.tournament import TournamentCreate, TournamentOut, ParticipantRegister, ParticipantOut, TournamentMatchOut , BracketMatchOut , LeaderboardEntryOut , MatchResultResponse , ParticipantResultOut, PlayerLeaderboardPointsOut, PlayerPrizeOut
+from models.tournament import TournamentCreate, TournamentOut, ParticipantRegister, ParticipantOut, TournamentMatchOut , BracketMatchOut , LeaderboardEntryOut , MatchResultResponse , ParticipantResultOut, PlayerLeaderboardPointsOut, PlayerPrizeOut,  PendingTournamentResultOut
 from models.tournament import MatchResultSubmit
 from services.tournament_service import TournamentService
 
@@ -114,3 +114,8 @@ async def get_tournament_results(tournament_id: int):
 @router.get("/get_player_prizes/{playfab_id}/", response_model=list[PlayerPrizeOut])
 async def get_player_prizes(playfab_id: str):
     return await service.get_player_prizes(playfab_id)
+
+
+@router.get("/tournament/pending_result")
+async def get_pending_result(playfab_id: str):
+    return await service.get_and_clear_pending_result(playfab_id)
