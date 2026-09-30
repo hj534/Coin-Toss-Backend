@@ -169,7 +169,7 @@ def handle_webhook(event):
         return
 
     session = event["data"]["object"]
-    metadata = session["metadata"]
+    metadata = dict(session["metadata"])  # <-- FIX: StripeObject ko plain dict banao
     item_type = metadata.get("item_type")
 
     if item_type == "currency":
