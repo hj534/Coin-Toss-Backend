@@ -22,10 +22,29 @@ async def checkout(data: CheckoutRequest):
         raise HTTPException(status_code=400, detail=error)
     return {"url": url}
 
+# @router.post("/webhook/")
+# async def webhook(request: Request):
+#     print("Received webhook request")
+#     payload = await request.body()
+#     event = stripe.Event.construct_from(json.loads(payload), STRIPE_WEBHOOK_SECRET)
+#     handle_webhook(event)
+#     return {}
+
+
 @router.post("/webhook/")
 async def webhook(request: Request):
     print("Received webhook request")
     payload = await request.body()
-    event = stripe.Event.construct_from(json.loads(payload), STRIPE_WEBHOOK_SECRET)
+    sig_header = request.headers.get("stripe-signature")
+
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
     handle_webhook(event)
     return {}
