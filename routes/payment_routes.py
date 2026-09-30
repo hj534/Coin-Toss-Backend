@@ -31,9 +31,11 @@ async def checkout(data: CheckoutRequest):
 #     return {}
 
 
+
 @router.post("/webhook/")
 async def webhook(request: Request):
     print("Received webhook request")
+    print(f"DEBUG secret len={len(STRIPE_WEBHOOK_SECRET)} value={STRIPE_WEBHOOK_SECRET!r}")
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
 
