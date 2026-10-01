@@ -275,3 +275,71 @@ def unlock_coin_model(playfab_id: str, model_id: str):
     except Exception as e:
         print(f"Error unlocking model {model_id} for user {playfab_id}: {e}")
         return False
+
+
+def deduct_playfab_cash(playfab_id: str, amount: int) -> bool:
+    if amount <= 0:
+        return True
+
+    get_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/GetUserData"
+    headers = {"X-SecretKey": PLAYFAB_SECRET_KEY}
+
+    try:
+        get_response = requests.post(get_data_url, headers=headers, json={"PlayFabId": playfab_id})
+        get_response.raise_for_status()
+        current_cash = int(get_response.json()["data"]["Data"].get("Cash", {}).get("Value", 0))
+    except Exception as e:
+        print(f"Error getting cash for {playfab_id}: {e}")
+        return False
+
+    if current_cash < amount:
+        print(f"Insufficient cash for {playfab_id}: has {current_cash}, needs {amount}")
+        return False
+
+    new_cash = current_cash - amount
+    update_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/UpdateUserData"
+
+    try:
+        update_response = requests.post(update_data_url, headers=headers, json={
+            "PlayFabId": playfab_id,
+            "Data": {"Cash": str(new_cash)}
+        })
+        update_response.raise_for_status()
+        return update_response.ok
+    except Exception as e:
+        print(f"Error deducting cash for {playfab_id}: {e}")
+        return False
+
+
+def deduct_playfab_coins(playfab_id: str, amount: int) -> bool:
+    if amount <= 0:
+        return True
+
+    get_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/GetUserData"
+    headers = {"X-SecretKey": PLAYFAB_SECRET_KEY}
+
+    try:
+        get_response = requests.post(get_data_url, headers=headers, json={"PlayFabId": playfab_id})
+        get_response.raise_for_status()
+        current_coins = int(get_response.json()["data"]["Data"].get("Coins", {}).get("Value", 0))
+    except Exception as e:
+        print(f"Error getting coins for {playfab_id}: {e}")
+        return False
+
+    if current_coins < amount:
+        print(f"Insufficient coins for {playfab_id}: has {current_coins}, needs {amount}")
+        return False
+
+    new_coins = current_coins - amount
+    update_data_url = f"https://{PLAYFAB_TITLE_ID}.playfabapi.com/Admin/UpdateUserData"
+
+    try:
+        update_response = requests.post(update_data_url, headers=headers, json={
+            "PlayFabId": playfab_id,
+            "Data": {"Coins": str(new_coins)}
+        })
+        update_response.raise_for_status()
+        return update_response.ok
+    except Exception as e:
+        print(f"Error deducting coins for {playfab_id}: {e}")
+        return False
