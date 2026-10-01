@@ -1073,3 +1073,29 @@ class TournamentService:
         prizes = data["prizes"]
         data["prizes"] = json.loads(prizes) if isinstance(prizes, str) else prizes
         return PendingTournamentResultOut(**data)
+    
+    
+    async def get_prize_breakdown(self, tournament_id: int) -> list[dict]:
+        pool = get_pool()
+        tournament = await pool.fetchrow(
+            "SELECT id, type, entry_fee FROM tournaments WHERE id = $1",
+            tournament_id,
+        )
+
+        if not tournament:
+            return []
+
+        if tournament["type"] in {"free", "daily"}:
+            reward_table = TOURNAMENT_RANK_REWARDS.get(tournament["entry_fee"], [])
+        else:
+            reward_table = SPECIAL_TOURNAMENT_RANK_REWARDS.get(tournament["type"], [])
+
+        return [
+            {
+                "rank": index + 1,
+                "cash": entry.get("cash", 0),
+                "points": entry.get("points", 0),
+                "prizes": entry.get("prizes", []),
+            }
+            for index, entry in enumerate(reward_table)
+        ]

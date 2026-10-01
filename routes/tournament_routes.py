@@ -119,3 +119,17 @@ async def get_player_prizes(playfab_id: str):
 @router.get("/tournament/pending_result")
 async def get_pending_result(playfab_id: str):
     return await service.get_and_clear_pending_result(playfab_id)
+
+
+@router.get("/tournament/prize_breakdown/{tournament_id}/")
+async def get_prize_breakdown(tournament_id: int):
+    return await service.get_prize_breakdown(tournament_id)
+
+
+
+
+
+
+
+
+
