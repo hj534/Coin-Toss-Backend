@@ -59,6 +59,8 @@ class TournamentCreate(BaseModel):
         return value
 
 
+
+
 class TournamentOut(BaseModel):
     id: int
     name: str
@@ -171,3 +173,16 @@ class PendingTournamentResultOut(BaseModel):
     cash: int
     points: int
     prizes: list[dict] = []
+    
+    
+    
+class ParticipantUnregister(BaseModel):
+    tournament_id: int
+    playfab_id: str
+
+
+class UnregisterResponse(BaseModel):
+    success: bool
+    tournament_id: int
+    playfab_id: str
+    current_players: int
