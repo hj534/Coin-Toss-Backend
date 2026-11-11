@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from models.tournament import TournamentCreate, TournamentOut, ParticipantRegister, ParticipantOut, TournamentMatchOut , BracketMatchOut , LeaderboardEntryOut , MatchResultResponse , ParticipantResultOut, PlayerLeaderboardPointsOut, PlayerPrizeOut,  PendingTournamentResultOut
+from models.tournament import TournamentCreate, TournamentOut, ParticipantRegister, ParticipantOut, TournamentMatchOut , BracketMatchOut , LeaderboardEntryOut , MatchResultResponse , ParticipantResultOut, PlayerLeaderboardPointsOut, PlayerPrizeOut,  PendingTournamentResultOut, ParticipantUnregister, UnregisterResponse
 from models.tournament import MatchResultSubmit
 from services.tournament_service import TournamentService
 
@@ -23,6 +23,15 @@ async def register_participant(payload: ParticipantRegister):
         return await service.register_participant(payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/unregister_participant_from_tournament/", response_model=UnregisterResponse)
+async def unregister_participant(payload: ParticipantUnregister):
+    try:
+        return await service.unregister_participant(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.get("/get_participants_of_tournament/{tournament_id}/", response_model=list[ParticipantOut])
 async def get_tournament_participants(tournament_id: int):

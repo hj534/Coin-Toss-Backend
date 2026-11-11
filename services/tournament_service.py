@@ -24,7 +24,10 @@ from models.tournament import (
     ParticipantResultOut,
     PlayerLeaderboardPointsOut,
     PlayerPrizeOut,
-    PendingTournamentResultOut
+    PendingTournamentResultOut,
+    ParticipantUnregister,
+    UnregisterResponse
+
 )
 from datetime import datetime, timedelta, timezone
 
@@ -275,6 +278,85 @@ class TournamentService:
         )
 
         return ParticipantOut(**dict(row))
+    
+    
+    async def unregister_participant(
+        self, payload: ParticipantUnregister
+    ) -> UnregisterResponse:
+        pool = get_pool()
+
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                # register_participant ki tarah same row lock, taake
+                # register/unregister/scheduler aapas mein race na karein
+                tournament = await conn.fetchrow(
+                    """
+                    SELECT id, status, start_time
+                    FROM tournaments
+                    WHERE id = $1
+                    FOR UPDATE
+                    """,
+                    payload.tournament_id,
+                )
+
+                if not tournament:
+                    raise ValueError("Tournament not found")
+
+                if tournament["status"] != "registration":
+                    raise ValueError(
+                        "Tournament has already started. You can no longer unregister."
+                    )
+
+                start_time = tournament["start_time"]
+                if start_time.tzinfo is None:
+                    start_time = start_time.replace(tzinfo=timezone.utc)
+
+                if datetime.now(timezone.utc) >= start_time:
+                    raise ValueError(
+                        "Tournament is about to start. You can no longer unregister."
+                    )
+
+                deleted = await conn.fetchrow(
+                    """
+                    DELETE FROM tournament_participants
+                    WHERE tournament_id = $1
+                      AND playfab_id = $2
+                    RETURNING id
+                    """,
+                    payload.tournament_id,
+                    payload.playfab_id,
+                )
+
+                if not deleted:
+                    raise ValueError("You are not registered in this tournament")
+
+                # +1/-1 ki jagah actual count se sync, taake count kabhi galat na ho
+                current_players = await conn.fetchval(
+                    """
+                    UPDATE tournaments
+                    SET current_players = (
+                        SELECT COUNT(*)
+                        FROM tournament_participants
+                        WHERE tournament_id = $1
+                    )
+                    WHERE id = $1
+                    RETURNING current_players
+                    """,
+                    payload.tournament_id,
+                )
+
+        await manager.broadcast_event(
+            f"{TOURNAMENT_UPDATED_EVENT}:{payload.tournament_id}"
+        )
+
+        return UnregisterResponse(
+            success=True,
+            tournament_id=payload.tournament_id,
+            playfab_id=payload.playfab_id,
+            current_players=current_players,
+        )
+    
+    
     
     async def get_tournament_participants(self, tournament_id: int) -> list[ParticipantOut]:
      pool = get_pool()
