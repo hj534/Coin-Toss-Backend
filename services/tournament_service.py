@@ -26,7 +26,9 @@ from models.tournament import (
     PlayerPrizeOut,
     PendingTournamentResultOut,
     ParticipantUnregister,
-    UnregisterResponse
+    UnregisterResponse,
+    LeaderboardPeriodInfoOut,
+    PeriodLeaderboardRewardOut
 
 )
 from datetime import datetime, timedelta, timezone
