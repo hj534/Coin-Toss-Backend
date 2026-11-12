@@ -1473,3 +1473,47 @@ def _period_key(period_type: str, moment: datetime) -> str:
         iso = moment.isocalendar()
         return f"{iso[0]}-W{iso[1]:02d}"
     return f"{moment.year}-{moment.month:02d}"
+
+
+_period_tables_ready = False
+_period_tables_lock = asyncio.Lock()
+
+async def _ensure_period_tables(self):
+        if TournamentService._period_tables_ready:
+            return
+
+        async with TournamentService._period_tables_lock:
+            if TournamentService._period_tables_ready:
+                return
+
+            pool = get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS period_leaderboard (
+                        period_type TEXT NOT NULL,
+                        period_key TEXT NOT NULL,
+                        playfab_id TEXT NOT NULL,
+                        points INTEGER NOT NULL DEFAULT 0,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        PRIMARY KEY (period_type, period_key, playfab_id)
+                    );
+
+                    CREATE TABLE IF NOT EXISTS leaderboard_period_rewards (
+                        id SERIAL PRIMARY KEY,
+                        period_type TEXT NOT NULL,
+                        period_key TEXT NOT NULL,
+                        playfab_id TEXT NOT NULL,
+                        display_name TEXT NOT NULL DEFAULT '',
+                        rank INTEGER NOT NULL,
+                        points INTEGER NOT NULL DEFAULT 0,
+                        cash INTEGER NOT NULL DEFAULT 0,
+                        prizes JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        cash_paid BOOLEAN NOT NULL DEFAULT FALSE,
+                        seen BOOLEAN NOT NULL DEFAULT FALSE,
+                        awarded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        UNIQUE (period_type, period_key, playfab_id)
+                    );
+                    """
+                )
+            TournamentService._period_tables_ready = True
