@@ -136,8 +136,27 @@ async def get_prize_breakdown(tournament_id: int):
 
 
 
+@router.get("/get_weekly_leaderboard/", response_model=list[LeaderboardEntryOut])
+async def get_weekly_leaderboard(limit: int = 50):
+    return await service.get_period_leaderboard("weekly", limit)
 
 
+@router.get("/get_monthly_leaderboard/", response_model=list[LeaderboardEntryOut])
+async def get_monthly_leaderboard(limit: int = 50):
+    return await service.get_period_leaderboard("monthly", limit)
+
+
+@router.get("/get_leaderboard_period_info/{period_type}/", response_model=LeaderboardPeriodInfoOut)
+async def get_leaderboard_period_info(period_type: str):
+    try:
+        return await service.get_leaderboard_period_info(period_type)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/get_pending_leaderboard_rewards/{playfab_id}/", response_model=list[PeriodLeaderboardRewardOut])
+async def get_pending_leaderboard_rewards(playfab_id: str):
+    return await service.get_pending_leaderboard_rewards(playfab_id)
 
 
 

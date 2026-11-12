@@ -40,3 +40,10 @@ async def on_shutdown():
 @app.get("/user")
 def get_user(name):
     return {"name": name}
+
+
+import asyncio
+from routes.tournament_routes import service as tournament_service
+
+# startup event / lifespan ke andar:
+asyncio.create_task(tournament_service.leaderboard_settlement_loop())

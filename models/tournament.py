@@ -186,3 +186,21 @@ class UnregisterResponse(BaseModel):
     tournament_id: int
     playfab_id: str
     current_players: int
+    
+    
+class LeaderboardPeriodInfoOut(BaseModel):
+    period_type: str
+    period_key: str
+    starts_at: datetime
+    ends_at: datetime
+    seconds_until_reset: int
+
+
+class PeriodLeaderboardRewardOut(BaseModel):
+    period_type: str
+    period_key: str
+    rank: int
+    points: int
+    cash: int
+    prizes: list[dict] = []
+    awarded_at: datetime

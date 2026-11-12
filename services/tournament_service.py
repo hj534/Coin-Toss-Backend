@@ -1,7 +1,7 @@
 from services.db import get_pool
 from services.websocket_instance import manager
 import json
-
+import asyncio
 from services.db import get_pool
 from services.websocket_instance import manager
 from config.events import (
@@ -996,6 +996,246 @@ class TournamentService:
         return TournamentOut(**dict(row)) if row else None
     
     
+        _period_tables_ready = False
+
+    async def _ensure_period_tables(self):
+        if TournamentService._period_tables_ready:
+            return
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS period_leaderboard (
+                    period_type TEXT NOT NULL,
+                    period_key TEXT NOT NULL,
+                    playfab_id TEXT NOT NULL,
+                    points INTEGER NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (period_type, period_key, playfab_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS leaderboard_period_rewards (
+                    id SERIAL PRIMARY KEY,
+                    period_type TEXT NOT NULL,
+                    period_key TEXT NOT NULL,
+                    playfab_id TEXT NOT NULL,
+                    display_name TEXT NOT NULL DEFAULT '',
+                    rank INTEGER NOT NULL,
+                    points INTEGER NOT NULL DEFAULT 0,
+                    cash INTEGER NOT NULL DEFAULT 0,
+                    prizes JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    cash_paid BOOLEAN NOT NULL DEFAULT FALSE,
+                    seen BOOLEAN NOT NULL DEFAULT FALSE,
+                    awarded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE (period_type, period_key, playfab_id)
+                );
+                """
+            )
+        TournamentService._period_tables_ready = True
+
+    async def _add_period_points(self, conn, playfab_id: str, points: int):
+        """Weekly + monthly points. Fail ho to sirf log, tournament flow na ruke."""
+        if points <= 0:
+            return
+        try:
+            await self._ensure_period_tables()
+            now = datetime.now(timezone.utc)
+            for period_type in LEADERBOARD_PERIODS:
+                await conn.execute(
+                    """
+                    INSERT INTO period_leaderboard
+                        (period_type, period_key, playfab_id, points, updated_at)
+                    VALUES ($1, $2, $3, $4, NOW())
+                    ON CONFLICT (period_type, period_key, playfab_id) DO UPDATE
+                    SET points = period_leaderboard.points + EXCLUDED.points,
+                        updated_at = NOW()
+                    """,
+                    period_type,
+                    _period_key(period_type, now),
+                    playfab_id,
+                    points,
+                )
+        except Exception as e:
+            print(f"Failed to add weekly/monthly points for {playfab_id}: {e}")
+
+    def _validate_period_type(self, period_type: str):
+        if period_type not in LEADERBOARD_PERIODS:
+            raise ValueError(f"period_type must be one of {list(LEADERBOARD_PERIODS)}")
+
+    async def get_period_leaderboard(
+        self, period_type: str, limit: int = 50
+    ) -> list[LeaderboardEntryOut]:
+        self._validate_period_type(period_type)
+        await self._ensure_period_tables()
+        key = _period_key(period_type, datetime.now(timezone.utc))
+
+        pool = get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT pl.playfab_id, pl.display_name, p.points AS wins, p.points
+            FROM period_leaderboard p
+            JOIN player_leaderboard pl ON pl.playfab_id = p.playfab_id
+            WHERE p.period_type = $1
+              AND p.period_key = $2
+              AND p.points > 0
+              AND pl.active_membership_id <> ''
+            ORDER BY p.points DESC, p.updated_at ASC
+            LIMIT $3
+            """,
+            period_type,
+            key,
+            limit,
+        )
+        return [LeaderboardEntryOut(**dict(row)) for row in rows]
+
+    async def get_leaderboard_period_info(self, period_type: str) -> LeaderboardPeriodInfoOut:
+        self._validate_period_type(period_type)
+        now = datetime.now(timezone.utc)
+        start, end = _period_bounds(period_type, now)
+        return LeaderboardPeriodInfoOut(
+            period_type=period_type,
+            period_key=_period_key(period_type, now),
+            starts_at=start,
+            ends_at=end,
+            seconds_until_reset=max(0, int((end - now).total_seconds())),
+        )
+
+    async def settle_leaderboard_period(self, period_type: str, period_key: str):
+        """Khatam ho chuke period ke top players ko reward do. Dobara chalane se double reward nahi milta."""
+        await self._ensure_period_tables()
+        reward_table = LEADERBOARD_REWARD_TABLES[period_type]
+        pool = get_pool()
+
+        async with pool.acquire() as conn:
+            winners = await conn.fetch(
+                """
+                SELECT p.playfab_id, pl.display_name, p.points
+                FROM period_leaderboard p
+                JOIN player_leaderboard pl ON pl.playfab_id = p.playfab_id
+                WHERE p.period_type = $1
+                  AND p.period_key = $2
+                  AND p.points > 0
+                  AND pl.active_membership_id <> ''
+                ORDER BY p.points DESC, p.updated_at ASC
+                LIMIT $3
+                """,
+                period_type,
+                period_key,
+                len(reward_table),
+            )
+
+            for index, row in enumerate(winners):
+                reward = reward_table[index]
+                cash = reward.get("cash", 0)
+                await conn.execute(
+                    """
+                    INSERT INTO leaderboard_period_rewards
+                        (period_type, period_key, playfab_id, display_name,
+                         rank, points, cash, prizes, cash_paid)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+                    ON CONFLICT (period_type, period_key, playfab_id) DO NOTHING
+                    """,
+                    period_type,
+                    period_key,
+                    row["playfab_id"],
+                    row["display_name"] or row["playfab_id"],
+                    index + 1,
+                    row["points"],
+                    cash,
+                    json.dumps(reward.get("prizes", [])),
+                    cash <= 0,
+                )
+
+            # Jin ka cash baqi hai (naye + pichli dafa fail hue), unhein pay karo
+            unpaid = await conn.fetch(
+                """
+                SELECT id, playfab_id, cash, rank
+                FROM leaderboard_period_rewards
+                WHERE period_type = $1 AND period_key = $2 AND cash_paid = FALSE
+                """,
+                period_type,
+                period_key,
+            )
+
+            for reward in unpaid:
+                # Pehle claim karo (do instance hon to bhi double payment na ho)
+                claimed = await conn.fetchval(
+                    """
+                    UPDATE leaderboard_period_rewards
+                    SET cash_paid = TRUE
+                    WHERE id = $1 AND cash_paid = FALSE
+                    RETURNING id
+                    """,
+                    reward["id"],
+                )
+                if not claimed:
+                    continue
+
+                success = update_playfab_cash(reward["playfab_id"], reward["cash"])
+                if success:
+                    await manager.send_event(reward["playfab_id"], CASH_UPDATED_EVENT)
+                    print(
+                        f"{period_type} leaderboard {period_key} rank {reward['rank']}: "
+                        f"paid {reward['cash']} cash to {reward['playfab_id']}"
+                    )
+                else:
+                    await conn.execute(
+                        "UPDATE leaderboard_period_rewards SET cash_paid = FALSE WHERE id = $1",
+                        reward["id"],
+                    )
+                    print(
+                        f"Failed to pay {period_type} leaderboard cash "
+                        f"to {reward['playfab_id']}, will retry"
+                    )
+
+    async def settle_finished_leaderboard_periods(self):
+        now = datetime.now(timezone.utc)
+        for period_type in LEADERBOARD_PERIODS:
+            start, _ = _period_bounds(period_type, now)
+            # Pichle 2 mukammal periods (server band raha ho to catch-up ho jaye)
+            for _ in range(2):
+                previous_start, _ = _period_bounds(period_type, start - timedelta(seconds=1))
+                await self.settle_leaderboard_period(
+                    period_type, _period_key(period_type, previous_start)
+                )
+                start = previous_start
+
+    async def leaderboard_settlement_loop(self, interval_seconds: int = 300):
+        while True:
+            try:
+                await self.settle_finished_leaderboard_periods()
+            except Exception as e:
+                print(f"Leaderboard settlement error: {e}")
+            await asyncio.sleep(interval_seconds)
+
+    async def get_pending_leaderboard_rewards(
+        self, playfab_id: str
+    ) -> list[PeriodLeaderboardRewardOut]:
+        """Player ko ek dafa dikhane ke liye; dikhane ke baad seen=TRUE ho jata hai."""
+        await self._ensure_period_tables()
+        pool = get_pool()
+        rows = await pool.fetch(
+            """
+            UPDATE leaderboard_period_rewards
+            SET seen = TRUE
+            WHERE playfab_id = $1 AND seen = FALSE AND cash_paid = TRUE
+            RETURNING period_type, period_key, rank, points, cash, prizes, awarded_at
+            """,
+            playfab_id,
+        )
+
+        result = []
+        for row in sorted(rows, key=lambda r: r["awarded_at"]):
+            data = dict(row)
+            prizes = data["prizes"]
+            data["prizes"] = json.loads(prizes) if isinstance(prizes, str) else prizes
+            result.append(PeriodLeaderboardRewardOut(**data))
+        return result
+    
+    
+    
+    
+    
     async def get_leaderboard(
         self,
         limit: int = 50,
@@ -1181,3 +1421,53 @@ class TournamentService:
             }
             for index, entry in enumerate(reward_table)
         ]
+        
+        
+        
+LEADERBOARD_PERIODS = ("weekly", "monthly")
+
+WEEKLY_LEADERBOARD_REWARDS = [
+    {"cash": 5000, "prizes": []},
+    {"cash": 3000, "prizes": []},
+    {"cash": 2000, "prizes": []},
+    {"cash": 1000, "prizes": []},
+    {"cash": 500, "prizes": []},
+]
+
+MONTHLY_LEADERBOARD_REWARDS = [
+    {"cash": 20000, "prizes": [{"type": "gift_card", "name": "$100 gift card", "value": "$100"}]},
+    {"cash": 10000, "prizes": []},
+    {"cash": 5000, "prizes": []},
+    {"cash": 3000, "prizes": []},
+    {"cash": 2000, "prizes": []},
+]
+
+LEADERBOARD_REWARD_TABLES = {
+    "weekly": WEEKLY_LEADERBOARD_REWARDS,
+    "monthly": MONTHLY_LEADERBOARD_REWARDS,
+}
+
+
+def _period_bounds(period_type: str, moment: datetime) -> tuple[datetime, datetime]:
+    """UTC mein period ki start/end. Weekly = Monday se, monthly = 1 tareekh se."""
+    moment = moment.astimezone(timezone.utc)
+    if period_type == "weekly":
+        start = (moment - timedelta(days=moment.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        return start, start + timedelta(days=7)
+
+    start = moment.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if start.month == 12:
+        end = start.replace(year=start.year + 1, month=1)
+    else:
+        end = start.replace(month=start.month + 1)
+    return start, end
+
+
+def _period_key(period_type: str, moment: datetime) -> str:
+    moment = moment.astimezone(timezone.utc)
+    if period_type == "weekly":
+        iso = moment.isocalendar()
+        return f"{iso[0]}-W{iso[1]:02d}"
+    return f"{moment.year}-{moment.month:02d}"
