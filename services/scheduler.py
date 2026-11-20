@@ -47,6 +47,12 @@ DAILY_TOURNAMENT_FIRST_PLACE_PRIZES = {
     2000: 40000,
     3000: 100000,
 }
+DAILY_TOURNAMENT_NAMES = [
+    "SILVER STRIKE OPEN",
+    "GOLDEN STRIKE OPEN",
+    "PLATINUM STRIKE OPEN",
+    ]
+
 FREE_TOURNAMENT_NAMES = [
     "Lucky Flip Free Cup",
     "Golden Toss Free Sprint",
@@ -339,7 +345,7 @@ async def _ensure_daily_tournaments():
     async with pool.acquire() as conn:
         async with conn.transaction():
             for index, hour in enumerate(DAILY_TOURNAMENT_HOURS, start=1):
-                name = f"Best of the Best Coin Flipping Champs {index}"
+                name = DAILY_TOURNAMENT_NAMES[index]
                 entry_fee = DAILY_TOURNAMENT_FEES[(index - 1) % len(DAILY_TOURNAMENT_FEES)]
                 start_at, end_at = _current_or_next_daily_window(hour)
 
