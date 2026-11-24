@@ -42,9 +42,9 @@ from services.playfab_service import (
 TOURNAMENT_DURATIONS = {
     "free": timedelta(hours=3),
     "daily": timedelta(days=1),
-    "weekly": timedelta(days=1),
-    "monthly": timedelta(days=1),
-    "bimonthly": timedelta(days=1),
+    "weekly": timedelta(days=7),
+    "monthly": timedelta(days=30),
+    "bimonthly": timedelta(days=15),
 }
 TOURNAMENT_RANK_REWARDS = {
     0: [
