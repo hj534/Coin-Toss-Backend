@@ -1,6 +1,7 @@
 import asyncio
 import random
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from services.db import get_pool
 from services.websocket_instance import manager
@@ -8,29 +9,41 @@ from services.tournament_service import TournamentService
 from config.events import TOURNAMENT_STARTED_EVENT, TOURNAMENT_COMPLETED_EVENT
 
 POLL_INTERVAL_SECONDS = 15
-SCHEDULER_TIMEZONE = timezone.utc
-WEEKLY_TOURNAMENT_NAME = "Best of the Best Coin Flipping Champs Weekly Mini Main Event"
-WEEKLY_TOURNAMENT_START_DAY = 5  # Saturday, where Monday is 0.
-WEEKLY_TOURNAMENT_START_TIME = time(hour=20, minute=0)
+SCHEDULER_TIMEZONE = timezone.utc  # free aur daily ke ghante UTC mein hain
+
+# Weekly / Monthly / Champion ka waqt Eastern mein (garmi-sardi ka farq khud sambhalta hai)
+EVENT_TIMEZONE = ZoneInfo("America/New_York")
+EVENT_START_TIME = time(hour=12, minute=0)  # 12 PM Eastern
+
+# Weekly: har Friday
+WEEKLY_TOURNAMENT_NAME = "Weekly MINI MAIN GOLD RING EVENT"
+WEEKLY_TOURNAMENT_START_DAY = 4  # Friday (Monday = 0)
 WEEKLY_TOURNAMENT_MAX_PLAYERS = 256
 WEEKLY_TOURNAMENT_ENTRY_FEE = 5000
 WEEKLY_TOURNAMENT_SETS = 5
 WEEKLY_TOURNAMENT_CURRENCY_TYPE = "cash"
 WEEKLY_TOURNAMENT_ROUND_TIME_SECONDS = 60
-MONTHLY_TOURNAMENT_NAME = "Best of the Best Coin Flipping Champs Monthly Main Event"
-MONTHLY_TOURNAMENT_START_TIME = time(hour=13, minute=0)
+
+# Monthly: har mahine ka 4th Saturday
+MONTHLY_TOURNAMENT_NAME = "MONTHLY MINI MAIN BRACELET EVENT"
+MONTHLY_TOURNAMENT_START_DAY = 5  # Saturday
+MONTHLY_TOURNAMENT_WEEK_NUMBER = 4  # 4th Saturday
 MONTHLY_TOURNAMENT_MAX_PLAYERS = 256
-MONTHLY_TOURNAMENT_ENTRY_FEE = 4000
+MONTHLY_TOURNAMENT_ENTRY_FEE = 10000
 MONTHLY_TOURNAMENT_SETS = 5
 MONTHLY_TOURNAMENT_CURRENCY_TYPE = "cash"
 MONTHLY_TOURNAMENT_ROUND_TIME_SECONDS = 60
-BIMONTHLY_TOURNAMENT_NAME = "Best of the Best Coin Flipping Championships Major Main Event"
-BIMONTHLY_TOURNAMENT_START_TIME = time(hour=13, minute=0)
+
+# Champion Main Event: har dusre mahine (Jan, Mar, May, ...) ka aakhri Sunday.
+# Schedule badalna ho to sirf yeh 2 lines (din aur _is_bimonthly_month) badlein.
+BIMONTHLY_TOURNAMENT_NAME = "CHAMPION MAIN EVENT"
+BIMONTHLY_TOURNAMENT_START_DAY = 6  # Sunday
 BIMONTHLY_TOURNAMENT_MAX_PLAYERS = 256
-BIMONTHLY_TOURNAMENT_ENTRY_FEE = 10000
+BIMONTHLY_TOURNAMENT_ENTRY_FEE = 50000
 BIMONTHLY_TOURNAMENT_SETS = 7
 BIMONTHLY_TOURNAMENT_CURRENCY_TYPE = "cash"
 BIMONTHLY_TOURNAMENT_ROUND_TIME_SECONDS = 600
+
 DAILY_TOURNAMENT_MAX_PLAYERS = 256
 DAILY_TOURNAMENT_SETS = 3
 DAILY_TOURNAMENT_CURRENCY_TYPE = "cash"
@@ -72,67 +85,33 @@ service = TournamentService()
 _task: asyncio.Task | None = None
 
 
-def _current_or_next_weekly_window():
-    now = datetime.now(SCHEDULER_TIMEZONE)
-    days_until_start = (WEEKLY_TOURNAMENT_START_DAY - now.weekday()) % 7
-    start_at = now.replace(
-        hour=WEEKLY_TOURNAMENT_START_TIME.hour,
-        minute=WEEKLY_TOURNAMENT_START_TIME.minute,
-        second=0,
-        microsecond=0,
-    ) + timedelta(days=days_until_start)
+# ---------- Eastern time helpers ----------
 
-    if start_at <= now:
-        start_at += timedelta(days=7)
-
-    return start_at, start_at + timedelta(days=1)
+def _event_start_utc(day: date) -> datetime:
+    """Is tareekh par 12 PM Eastern, UTC mein convert karke."""
+    local_start = datetime.combine(day, EVENT_START_TIME, tzinfo=EVENT_TIMEZONE)
+    return local_start.astimezone(timezone.utc)
 
 
-def _last_sunday(year: int, month: int):
+def _nth_weekday_of_month(year: int, month: int, weekday: int, n: int) -> date:
+    first_day = date(year, month, 1)
+    offset = (weekday - first_day.weekday()) % 7
+    return first_day + timedelta(days=offset + 7 * (n - 1))
+
+
+def _last_weekday_of_month(year: int, month: int, weekday: int) -> date:
     if month == 12:
-        last_day = datetime(year + 1, 1, 1, tzinfo=SCHEDULER_TIMEZONE) - timedelta(days=1)
+        last_day = date(year + 1, 1, 1) - timedelta(days=1)
     else:
-        last_day = datetime(year, month + 1, 1, tzinfo=SCHEDULER_TIMEZONE) - timedelta(days=1)
+        last_day = date(year, month + 1, 1) - timedelta(days=1)
 
-    days_since_sunday = (last_day.weekday() - 6) % 7
-    return last_day - timedelta(days=days_since_sunday)
+    return last_day - timedelta(days=(last_day.weekday() - weekday) % 7)
 
 
 def _add_month(year: int, month: int):
     if month == 12:
         return year + 1, 1
     return year, month + 1
-
-
-def _monthly_start_for(year: int, month: int):
-    last_sunday = _last_sunday(year, month)
-    return last_sunday.replace(
-        hour=MONTHLY_TOURNAMENT_START_TIME.hour,
-        minute=MONTHLY_TOURNAMENT_START_TIME.minute,
-        second=0,
-        microsecond=0,
-    )
-
-
-def _bimonthly_start_for(year: int, month: int):
-    last_sunday = _last_sunday(year, month)
-    return last_sunday.replace(
-        hour=BIMONTHLY_TOURNAMENT_START_TIME.hour,
-        minute=BIMONTHLY_TOURNAMENT_START_TIME.minute,
-        second=0,
-        microsecond=0,
-    )
-
-
-def _current_or_next_monthly_window():
-    now = datetime.now(SCHEDULER_TIMEZONE)
-    start_at = _monthly_start_for(now.year, now.month)
-
-    if start_at <= now:
-        next_year, next_month = _add_month(now.year, now.month)
-        start_at = _monthly_start_for(next_year, next_month)
-
-    return start_at, start_at + timedelta(days=1)
 
 
 def _add_months(year: int, month: int, count: int):
@@ -144,17 +123,58 @@ def _is_bimonthly_month(month: int):
     return (month - 1) % 2 == 0
 
 
+# ---------- Windows ----------
+
+def _current_or_next_weekly_window():
+    now_local = datetime.now(EVENT_TIMEZONE)
+    days_ahead = (WEEKLY_TOURNAMENT_START_DAY - now_local.weekday()) % 7
+    start_at = _event_start_utc(now_local.date() + timedelta(days=days_ahead))
+
+    if start_at <= datetime.now(timezone.utc):
+        start_at = _event_start_utc(now_local.date() + timedelta(days=days_ahead + 7))
+
+    return start_at, start_at + timedelta(days=1)
+
+
+def _monthly_start_for(year: int, month: int):
+    return _event_start_utc(
+        _nth_weekday_of_month(
+            year,
+            month,
+            MONTHLY_TOURNAMENT_START_DAY,
+            MONTHLY_TOURNAMENT_WEEK_NUMBER,
+        )
+    )
+
+
+def _current_or_next_monthly_window():
+    now_local = datetime.now(EVENT_TIMEZONE)
+    start_at = _monthly_start_for(now_local.year, now_local.month)
+
+    if start_at <= datetime.now(timezone.utc):
+        next_year, next_month = _add_month(now_local.year, now_local.month)
+        start_at = _monthly_start_for(next_year, next_month)
+
+    return start_at, start_at + timedelta(days=1)
+
+
+def _bimonthly_start_for(year: int, month: int):
+    return _event_start_utc(
+        _last_weekday_of_month(year, month, BIMONTHLY_TOURNAMENT_START_DAY)
+    )
+
+
 def _current_or_next_bimonthly_window():
-    now = datetime.now(SCHEDULER_TIMEZONE)
-    year = now.year
-    month = now.month
+    now_local = datetime.now(EVENT_TIMEZONE)
+    year = now_local.year
+    month = now_local.month
 
     if not _is_bimonthly_month(month):
         year, month = _add_months(year, month, 1)
 
     start_at = _bimonthly_start_for(year, month)
 
-    if start_at <= now:
+    if start_at <= datetime.now(timezone.utc):
         year, month = _add_months(year, month, 2)
         start_at = _bimonthly_start_for(year, month)
 
@@ -180,6 +200,8 @@ def _current_or_next_free_window(hour: int):
 
     return start_at, start_at + timedelta(hours=3)
 
+
+# ---------- Creation ----------
 
 async def _ensure_weekly_tournament():
     pool = get_pool()
@@ -441,6 +463,8 @@ async def _ensure_free_tournaments():
                 )
 
 
+# ---------- Start / expire ----------
+
 async def _check_due_tournaments():
     pool = get_pool()
     started_tournaments: list[tuple[int, list[str]]] = []
@@ -584,6 +608,8 @@ async def _check_expired_tournaments():
     for rewards in completed_tournament_rewards:
         await service._award_tournament_rewards(rewards)
 
+
+# ---------- Loop ----------
 
 async def _run_step(name, step):
     """Ek step fail ho to baqi steps phir bhi chalte rahein."""

@@ -103,8 +103,8 @@ SPECIAL_TOURNAMENT_RANK_REWARDS = {
             "prizes": [
                 {
                     "type": "ring",
-                    "name": "14k gold ring",
-                    "value": "1 bracelet",
+                    "name": "14K Gold Mint Wars Ring",
+                    "value": "1 ring",
                 },
                 {"type": "gift_card", "name": "$500 gift card", "value": "$500"},
             ],
@@ -125,7 +125,7 @@ SPECIAL_TOURNAMENT_RANK_REWARDS = {
             "prizes": [
                 {
                     "type": "bracelet",
-                    "name": "14k gold Mint Wars weekly champion bracelet",
+                    "name": "14K Gold Mint Wars Champion Bracelet",
                     "value": "1 bracelet",
                 },
                 {"type": "gift_card", "name": "$1000 gift card", "value": "$1000"},
@@ -147,7 +147,7 @@ SPECIAL_TOURNAMENT_RANK_REWARDS = {
             "prizes": [
                 {
                     "type": "bracelet",
-                    "name": "14k gold bracelet",
+                    "name": "14K Gold Mint Wars Champion Bracelet",
                     "value": "1 bracelet",
                 },
                 {"type": "gift_card", "name": "$1000 gift card", "value": "$1000"},
