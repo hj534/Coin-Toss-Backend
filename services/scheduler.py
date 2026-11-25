@@ -35,23 +35,20 @@ DAILY_TOURNAMENT_MAX_PLAYERS = 256
 DAILY_TOURNAMENT_SETS = 3
 DAILY_TOURNAMENT_CURRENCY_TYPE = "cash"
 DAILY_TOURNAMENT_ROUND_TIME_SECONDS = 60
-DAILY_TOURNAMENT_HOURS = [
-    8, 9, 10, 11, 12, 13, 14, 15,
-    16, 17, 18, 19, 20, 21, 22, 23,
-    0, 1, 2, 3, 4, 5, 6, 7,
+
+# Har daily tournament: naam, start ghanta (UTC), entry fee. Naam/waqt yahin se badlein.
+# Entry fee sirf 0, 1000, 2000 ya 3000 rakhein (rewards ka table inhi par bana hai).
+DAILY_TOURNAMENTS = [
+    {"name": "SILVER STRIKE OPEN",   "hour": 12, "entry_fee": 1000},
+    {"name": "GOLDEN STRIKE OPEN",   "hour": 16, "entry_fee": 2000},
+    {"name": "PLATINUM STRIKE OPEN", "hour": 20, "entry_fee": 3000},
 ]
-DAILY_TOURNAMENT_FEES = [0, 1000, 2000, 3000]
 DAILY_TOURNAMENT_FIRST_PLACE_PRIZES = {
     0: 500,
     1000: 20000,
     2000: 40000,
     3000: 100000,
 }
-DAILY_TOURNAMENT_NAMES = [
-    "SILVER STRIKE OPEN",
-    "GOLDEN STRIKE OPEN",
-    "PLATINUM STRIKE OPEN",
-    ]
 
 FREE_TOURNAMENT_NAMES = [
     "Lucky Flip Free Cup",
@@ -344,10 +341,10 @@ async def _ensure_daily_tournaments():
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            for index, hour in enumerate(DAILY_TOURNAMENT_HOURS, start=1):
-                name = DAILY_TOURNAMENT_NAMES[index]
-                entry_fee = DAILY_TOURNAMENT_FEES[(index - 1) % len(DAILY_TOURNAMENT_FEES)]
-                start_at, end_at = _current_or_next_daily_window(hour)
+            for config in DAILY_TOURNAMENTS:
+                name = config["name"]
+                entry_fee = config["entry_fee"]
+                start_at, end_at = _current_or_next_daily_window(config["hour"])
 
                 existing = await conn.fetchrow(
                     """
@@ -381,7 +378,7 @@ async def _ensure_daily_tournaments():
                     entry_fee,
                     DAILY_TOURNAMENT_CURRENCY_TYPE,
                     DAILY_TOURNAMENT_ROUND_TIME_SECONDS,
-                    DAILY_TOURNAMENT_FIRST_PLACE_PRIZES[entry_fee],
+                    DAILY_TOURNAMENT_FIRST_PLACE_PRIZES.get(entry_fee, entry_fee * 2),
                 )
 
                 print(
@@ -492,32 +489,6 @@ async def _check_due_tournaments():
             )
 
 
-async def _loop():
-    while True:
-        try:
-            print("Running scheduler tick")
-            await _check_expired_tournaments()
-            await _ensure_free_tournaments()
-            await _ensure_daily_tournaments()
-            await _ensure_weekly_tournament()
-            await _ensure_monthly_tournament()
-            await _ensure_bimonthly_tournament()
-            await _check_due_tournaments()
-        except Exception as e:
-            print(f"Scheduler tick failed: {e}")
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
-
-
-def start_scheduler():
-    global _task
-    _task = asyncio.create_task(_loop())
-
-
-def stop_scheduler():
-    if _task:
-        _task.cancel()
-
-
 async def _check_expired_tournaments():
     pool = get_pool()
     completed_tournament_rewards: list[list[dict]] = []
@@ -612,3 +583,34 @@ async def _check_expired_tournaments():
 
     for rewards in completed_tournament_rewards:
         await service._award_tournament_rewards(rewards)
+
+
+async def _run_step(name, step):
+    """Ek step fail ho to baqi steps phir bhi chalte rahein."""
+    try:
+        await step()
+    except Exception as e:
+        print(f"Scheduler step '{name}' failed: {e!r}")
+
+
+async def _loop():
+    while True:
+        print("Running scheduler tick")
+        await _run_step("check_expired", _check_expired_tournaments)
+        await _run_step("free", _ensure_free_tournaments)
+        await _run_step("daily", _ensure_daily_tournaments)
+        await _run_step("weekly", _ensure_weekly_tournament)
+        await _run_step("monthly", _ensure_monthly_tournament)
+        await _run_step("bimonthly", _ensure_bimonthly_tournament)
+        await _run_step("check_due", _check_due_tournaments)
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+
+def start_scheduler():
+    global _task
+    _task = asyncio.create_task(_loop())
+
+
+def stop_scheduler():
+    if _task:
+        _task.cancel()
